@@ -1,0 +1,53 @@
+{
+    "channel": {
+        "lossExponent": 3.41,
+        "noisePower": -80
+    },
+    "baseStation": [
+        {
+            "uuid": "b25bee2e-96c6-478f-952f-0dbe70507cd6",
+            "resourceBlocks": 275,
+            "frequency": 30000000000.0,
+            "subcarrierSpacing": 120000.0,
+            "txPower": 30,
+            "position": {
+                "x": 0,
+                "y": 0
+            }
+        }
+    ],
+    "userEquipment": [
+        {
+            "uuid": "3577374c-c489-4ff6-aaeb-44fd4fa7fd8c",
+            "capacity": 1000.0,
+            "position": {
+                "x": 35,
+                "y": 35
+            }
+        },
+        {
+            "uuid": "1ad9f7a1-0e30-4364-985b-f81bd5c23c9e",
+            "capacity": 1000.0,
+            "position": {
+                "x": 35,
+                "y": -35
+            }
+        },
+        {
+            "uuid": "6989b517-a3fb-4d62-a2d5-549ee25cedff",
+            "capacity": 1000.0,
+            "position": {
+                "x": -35,
+                "y": -35
+            }
+        },
+        {
+            "uuid": "94d4e728-cca6-4473-9620-b344b53251dc",
+            "capacity": 1000.0,
+            "position": {
+                "x": -35,
+                "y": 35
+            }
+        }
+    ]
+}

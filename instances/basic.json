@@ -1,0 +1,38 @@
+{
+    "baseStations": {
+        "number": 1,
+        "resource": 275,
+        "range": 50,
+        "position": {
+            "x": 0,
+            "y": 1
+        }
+    },
+    "userEquipments": {
+        "number": 4,
+        "capacity": [
+            1000,
+            1000,
+            1000,
+            1000
+        ],
+        "positions": [
+            "position" : {
+                "x": 35,
+                "y": 35
+            },
+            "position" : {
+                "x": 35,
+                "y": -35
+            },
+            "position" : {
+                "x": -35,
+                "y": -35
+            },
+            "position" : {
+                "x": -35,
+                "y": 35
+            }
+        ]
+    }
+}
