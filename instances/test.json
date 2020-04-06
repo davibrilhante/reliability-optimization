@@ -5,7 +5,7 @@
     },
     "baseStation": [
         {
-            "uuid": "b25bee2e-96c6-478f-952f-0dbe70507cd6",
+            "uuid": "81087733-4b60-4154-843e-172e0a1f5972",
             "resourceBlocks": 275,
             "frequency": 30000000000.0,
             "subcarrierSpacing": 120000.0,
@@ -18,32 +18,32 @@
     ],
     "userEquipment": [
         {
-            "uuid": "3577374c-c489-4ff6-aaeb-44fd4fa7fd8c",
-            "capacity": 1000.0,
+            "uuid": "a3820748-73bc-4726-b298-07ff2ee9dc31",
+            "capacity": 100000000.0,
             "position": {
                 "x": 35,
                 "y": 35
             }
         },
         {
-            "uuid": "1ad9f7a1-0e30-4364-985b-f81bd5c23c9e",
-            "capacity": 1000.0,
+            "uuid": "ec4867d0-2d57-4d15-9357-537f0342f464",
+            "capacity": 100000000.0,
             "position": {
                 "x": 35,
                 "y": -35
             }
         },
         {
-            "uuid": "6989b517-a3fb-4d62-a2d5-549ee25cedff",
-            "capacity": 1000.0,
+            "uuid": "1cd28cc6-6d0f-4d5e-9491-41e550f0785b",
+            "capacity": 100000000.0,
             "position": {
                 "x": -35,
                 "y": -35
             }
         },
         {
-            "uuid": "94d4e728-cca6-4473-9620-b344b53251dc",
-            "capacity": 1000.0,
+            "uuid": "ddf195be-b0d6-4b16-b633-7f6429e8c3c9",
+            "capacity": 100000000.0,
             "position": {
                 "x": -35,
                 "y": 35

@@ -25,9 +25,6 @@ def calc_snr(base, user, scenario):
 network = []
 nodes = []
 
-parser = argparse.ArgumentParser()
-
-
 
 ### Create base data
 with open('instances/test.json') as json_file:
