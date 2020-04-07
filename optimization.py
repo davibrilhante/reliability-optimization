@@ -8,12 +8,12 @@ import argparse
 import sys
 
 
-def calc_snr(base, user, scenario):
+def calc_snr(base, user, channel):
     distance = np.hypot(base['position']['x'] - user['position']['x'], base['position']['y'] - user['position']['y'])
     wavelength = 3e8/base['frequency']
 
-    exponent = scenario['lossExponent']
-    noise_power = scenario['noisePower']
+    exponent = channel['lossExponent']
+    noise_power = channel['noisePower']
 
     pl_0 = 20*np.log10(4*np.pi/wavelength)
     path_loss = pl_0 + 10*exponent*np.log10(distance) #- np.random.normal(0,8.96)
@@ -27,22 +27,28 @@ nodes = []
 
 
 ### Create base data
-with open('instances/test.json') as json_file:
+with open('instances/instance.json') as json_file:
     data = json.load(json_file)
+    scenario = data['scenario']
     channel = data['channel']
     for p in data['baseStation']:
         network.append(p)
     for p in data['userEquipment']:
         nodes.append(p)
 
+n_ue = len(nodes)
+m_bs = len(network)
 
 
 SNR = []
 for m, bs in enumerate(network):
     SNR.append([])
-    for ue in nodes:
-        bw_per_rb = 12*bs['subcarrierSpacing'] #12 subcarriers per resouce block times 120kHz subcarrier spacing
-        SNR[m].append(bw_per_rb*calc_snr(bs,ue,channel))
+    bw_per_rb = 12*bs['subcarrierSpacing'] #12 subcarriers per resouce block times 120kHz subcarrier spacing
+    for n,ue in enumerate(nodes):
+        SNR[m].append([])
+        #Adding the time dependency
+        for t in range(scenario['simTime']):
+            SNR[m][n].append(bw_per_rb*calc_snr(bs,ue,channel))
 
 R = []
 for bs in network:
@@ -57,36 +63,40 @@ model = gb.Model('newModel', optEnv)
 ### Add variables to the model
 x = []
 r = []
-for m, bs in enumerate(network):
+for m in range(m_bs):
     x.append([])
     r.append([])
-    print(x, m)
-    for n, ue in enumerate(nodes):
-        print(n)
-        x[m].append(model.addVar(vtype=GRB.BINARY, 
-                    name='x'+str(m)+str(n)))
+    for n in range(n_ue):
+        x[m].append([])
+        r[m].append([])
+        for t in range(scenario['simTime']):
+            x[m][n].append(model.addVar(vtype=GRB.BINARY, 
+                        name='x'+str(m)+str(n)+str(t)))
 
-        r[m].append(model.addVar(vtype=GRB.INTEGER, 
-                    name='r'+str(m)+str(n)))
+            r[m][n].append(model.addVar(vtype=GRB.INTEGER, 
+                        name='r'+str(m)+str(n)+str(t)))
 
 
 ### Add constraints to the model
 #
 # 1 - Capacity requirement constraint
 for n,ue in enumerate(nodes):
-    model.addConstr(sum(r[m][n]*SNR[m][n]*x[m][n] for m, bs in enumerate(network)) >= ue['capacity'])
+    for t in range(scenario['simTime']):
+        model.addConstr(sum(r[m][n][t]*SNR[m][n][t]*x[m][n][t] for m in range(m_bs)) >= ue['capacity'][t])
 
 # 2 - Resource Blocks boudaries constraints
 for m, bs in enumerate(network):
-    model.addConstr(sum(r[m][n]*x[m][n] for n, ue in enumerate(nodes)) <= R[m])
+    for t in range(scenario['simTime']):
+        model.addConstr(sum(r[m][n][t]*x[m][n][t] for n in range(n_ue)) <= R[m])
 
-# 3 - UE association limit constraint
+# 3 - UE association limit constraint. Each UE can be associate with only one BS
 for n, ue in enumerate(nodes):
-    model.addConstr(sum(x[m][n] for m, bs in enumerate(network)) <= 1)
+    for t in range(scenario['simTime']):
+        model.addConstr(sum(x[m][n][t] for m in range(m_bs)) <= 1)
 
 
 ### Set objective function
-model.setObjective(sum(sum(x[m][n] for n, ue in enumerate(nodes)) for m, bs in enumerate(network)), GRB.MAXIMIZE)
+model.setObjective(sum(sum(sum(x[m][n][t] for t in range(scenario['simTime'])) for n in range(n_ue)) for m in range(m_bs)), GRB.MAXIMIZE)
 
 
 ### Compute optimal Solution
