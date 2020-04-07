@@ -23,6 +23,8 @@ parser.add_argument('--ymin', help='Scenario y min', type=float, required=False,
 parser.add_argument('--xmax', help='Scenario x max', type=float, required=False, default=100.0)
 parser.add_argument('--ymax', help='Scenario y max', type=float, required=False, default=100.0)
 parser.add_argument('--seed', help='Seed for the random number generator', required=False, default=1, type=int)
+parser.add_argument('-B','--blockage', help='Activate random blockage between the BS-UE links', default=False, 
+        required=False, action='store_true')
 parser.add_argument('-R','--resourceBlocks', default=275, type=int, required=False)
 parser.add_argument('-f','--frequency', default=30e9, type=float, required=False)
 parser.add_argument('-O','--outputFile', default='instance.json', required=False)
@@ -88,9 +90,9 @@ if not args.notRandomUe:
 
         if args.staticCapacity:
             #The capacity requirement does not varies with the time
-            cap = [np.random.choice([1e5,5e5,1e6,5e6,1e7])*abs(np.random.normal(5,2.5))]*args.simTime
+            cap = [np.random.choice([0,1e5,5e5,1e6,5e6,1e7])*abs(np.random.normal(5,2.5))]*args.simTime
         else:
-            cap = [np.random.choice([1e5,5e5,1e6,5e6,1e7])*abs(np.random.normal(5,2.5)) for i in range(args.simTime)]
+            cap = [np.random.choice([0,1e5,5e5,1e6,5e6,1e7])*abs(np.random.normal(5,2.5)) for i in range(args.simTime)]
 
         data['userEquipment'].append({
             'uuid': str(uuid.uuid4()),
@@ -107,6 +109,16 @@ elif args.inputFile != None and args.notRandomUe:
 elif args.inputFile == None and args.notRandomUe:
     print('No user equipment data specified. Set -r/--notRandomUe or provide an input file with position and capacity')
     sys.exit()
+
+
+if args.blockage:
+    data['blockage'] = []
+    for m in range(args.baseStations):
+        data['blockage'].append([])
+        for n in range(args.userEquipments):
+            data['blockage'][m].append([])
+            for t in range(args.simTime):
+                data['blockage'][m][n].append(np.random.randint(2))
 
 with open(args.outputFile, 'w') as outfile:
     json.dump(data, outfile, indent=4)
