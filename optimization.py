@@ -27,10 +27,11 @@ nodes = []
 
 
 ### Create base data
-with open('instances/instance.json') as json_file:
+with open('instances/instance-1-4.json') as json_file:
     data = json.load(json_file)
     scenario = data['scenario']
     channel = data['channel']
+    B = data['blockage']
     for p in data['baseStation']:
         network.append(p)
     for p in data['userEquipment']:
@@ -54,6 +55,8 @@ R = []
 for bs in network:
     R.append(bs['resourceBlocks'])
 
+for i in range(m_bs):
+    print(B[i])
 
 ### Create environment and model
 optEnv = gb.Env('myEnv.log')
@@ -80,9 +83,10 @@ for m in range(m_bs):
 ### Add constraints to the model
 #
 # 1 - Capacity requirement constraint
+#   - Blockage constraint added
 for n,ue in enumerate(nodes):
     for t in range(scenario['simTime']):
-        model.addConstr(sum(r[m][n][t]*SNR[m][n][t]*x[m][n][t] for m in range(m_bs)) >= ue['capacity'][t])
+        model.addConstr(sum(r[m][n][t]*SNR[m][n][t]*(1-B[m][n][t]) for m in range(m_bs)) >= ue['capacity'][t]*x[m][n][t])
 
 # 2 - Resource Blocks boudaries constraints
 for m, bs in enumerate(network):
@@ -93,6 +97,12 @@ for m, bs in enumerate(network):
 for n, ue in enumerate(nodes):
     for t in range(scenario['simTime']):
         model.addConstr(sum(x[m][n][t] for m in range(m_bs)) <= 1)
+
+# 4 - Blockage constraint: it prevents that a link from being schedule when there is blockage
+#for m in range(m_bs):
+#   for n in range(n_ue):
+#       for t in range(scenario['simTime']):
+#           model.addConstr(x[m][n][t] <= (1 - B[m][n][t]))
 
 
 ### Set objective function
@@ -108,6 +118,12 @@ except gb.GurobiError:
 
 ### Print Info
 print()
-for v in model.getVars():
-    print('%s %g'%(v.varName,v.x))
+counter = 0
+v = model.getVars()
+for m in range(m_bs):
+    for n in range(n_ue):
+        for t in range(scenario['simTime']):
+            print('%s %g %s %g B%d%d%d %d'%(v[counter].varName,v[counter].x,v[counter+1].varName,v[counter+1].x, m,n,t,B[m][n][t]))
+            counter+=2
+
 print('obj: %g'% model.objVal)
