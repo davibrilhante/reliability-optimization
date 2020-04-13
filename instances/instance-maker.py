@@ -68,13 +68,39 @@ if args.baseStations == 1 and args.inputFile == None:
             'y': args.ymin + (args.ymax-args.ymin)/2
             }
         })
+#    data['baseStation'].append({
+#        'uuid': str(uuid.uuid4()),
+#        'resourceBlocks': args.resourceBlocks,
+#        'frequency': args.frequency,
+#        'subcarrierSpacing': (2**args.subcarrierSpacing)*15e3,
+#        'txPower': 30, #dBm
+#        'position': {
+#            'x': args.xmax - (args.xmax-args.xmin)/4,
+#            'y': args.ymin + (args.ymax-args.ymin)/2
+#            }
+#        })
 
 elif args.baseStations > 1 and args.inputFile == None:
     print('Base Station position files not specified')
     sys.exit()
 
 elif args.baseStations > 1 and args.inputFile != None:
-    1
+    with open(args.inputFile) as inputFile:
+        for bs in range(args.baseStations): 
+            line = inputFile.readline()
+            pos = line.strip('\n').split(' ')
+            data['baseStation'].append({
+                'uuid': str(uuid.uuid4()),
+                'resourceBlocks': args.resourceBlocks,
+                'frequency': args.frequency,
+                'subcarrierSpacing': (2**args.subcarrierSpacing)*15e3,
+                'txPower': 30, #dBm
+                'position': {
+                    'x': float(pos[0]),
+                    'y': float(pos[1])
+                    }
+                })
+
     
 
 data['userEquipment'] = []
@@ -94,9 +120,12 @@ if not args.notRandomUe:
         else:
             cap = [np.random.choice([0,1e5,5e5,1e6,5e6,1e7])*abs(np.random.normal(5,2.5)) for i in range(args.simTime)]
 
+        delay = np.random.randint(1,5)
+
         data['userEquipment'].append({
             'uuid': str(uuid.uuid4()),
             'capacity': cap,
+            'delay': delay,
             'position': {
                 'x': x,
                 'y': y
@@ -113,7 +142,7 @@ elif args.inputFile == None and args.notRandomUe:
 
 if args.blockage:
     data['blockage'] = []
-    for m in range(args.baseStations):
+    for m in range(len(data['baseStation'])):
         data['blockage'].append([])
         for n in range(args.userEquipments):
             data['blockage'][m].append([])
