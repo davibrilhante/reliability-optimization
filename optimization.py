@@ -63,6 +63,9 @@ for bs in network:
 optEnv = gb.Env('myEnv.log')
 model = gb.Model('newModel', optEnv)
 
+### Quadratic constraints control
+model.presolve().setParam(GRB.Param.PreQLinearize,1)
+
 
 ### Add variables to the model
 w = []
@@ -97,15 +100,25 @@ for m in range(m_bs):
 #
 # 1 - Capacity requirement constraint
 #   - Blockage constraint added
-for n,ue in enumerate(nodes):
-    for t in range(scenario['simTime']):
-        model.addConstr(sum(r[m][n][t]*SNR[m][n][t]*LOS[m][n][t] for m in range(m_bs)) 
-                >= ue['capacity'][t]*sum(x[m][n][t] for m in range(m_bs)))
+for m in range(m_bs):
+    for n,ue in enumerate(nodes):
+        for t in range(scenario['simTime']):
+            #model.addConstr(r[m][n][t]*SNR[m][n][t]*LOS[m][n][t] 
+            #        >= ue['capacity']*x[m][n][t])
+            model.addConstr(r[m][n][t]*LOS[m][n][t] 
+                    >= ue['capacity']*x[m][n][t])
 
 # 2 - Resource Blocks boudaries constraints
 for m in range(m_bs):
     for t in range(scenario['simTime']):
-        model.addConstr(sum(r[m][n][t]*x[m][n][t] for n in range(n_ue)) <= R[m])
+        #model.addConstr(sum(r[m][n][t]*x[m][n][t] for n in range(n_ue)) <= R[m])
+        model.addConstr(sum(r[m][n][t] for n in range(n_ue)) <= R[m])
+
+#2.1 - A strongest contraint is needed to force r[m][n][t] = 0, when x[m][n][t] = 0 
+
+#2.2 - Forcing a "worst case" round robin
+for n, ue in enumerate(nodes):
+    model.addConstr(sum(sum(x[m][n][t] for t in range(ue['arrival'],scenario['simTime'])) for m in range(m_bs)) <= 1)
 
 # 3 - UE association limit constraint. Each UE can be associate with only one BS
 for n in range(n_ue):
@@ -115,11 +128,8 @@ for n in range(n_ue):
 
 # 4 - Delay requirement constraints
 for n,ue in enumerate(nodes):
-    for t in range(scenario['simTime'],scenario['simTime']-ue['delay']):
-        model.addConstr(sum(sum(x[m][n][k]*LOS[m][n][k] for k in range(t,t+ue['delay'])) for m in range(m_bs))
-                >= sum(y[m][n][t] for m in range(m_bs)))
-        #model.addConstr(sum(sum(x[m][n][k] for k in range(t,t+ue['delay'])) for m in range(m_bs))
-        #        >= sum(y[m][n][t]*LOS[m][n][t] for m in range(m_bs)))
+    model.addConstr(sum(sum(x[m][n][k]*LOS[m][n][k] for k in range(ue['arrival'],ue['arrival']+ue['delay'])) for m in range(m_bs))
+            == sum(sum(y[m][n][k] for k in range(ue['arrival'],ue['arrival']+ue['delay'])) for m in range(m_bs)))
 
 # 5 - Delay and Capacity requirements coupling
 for m in range(m_bs):
@@ -127,7 +137,18 @@ for m in range(m_bs):
         for t in range(scenario['simTime']):
             model.addConstr(2*w[m][n][t] == x[m][n][t]+y[m][n][t])
 
+# 6 - There is no transmission to an UE before it arrives, also y cannot be 1 if after the delay interval
+for n,ue in enumerate(nodes):
+    model.addConstr(sum(sum(x[m][n][t] for t in range(ue['arrival'])) for m in range(m_bs)) == 0)
+    model.addConstr(sum(sum(y[m][n][t] for t in range(ue['arrival']+ue['delay'],scenario['simTime'])) for m in range(m_bs)) == 0)
+
+
+
+
 ### Set objective function
+#
+# 1 - Maximize the number of users which delay and capacity requirements were
+# fulfilled
 model.setObjective(sum(sum(sum(x[m][n][t]+y[m][n][t] for t in range(scenario['simTime'])) for n in range(n_ue)) for m in range(m_bs)), 
         GRB.MAXIMIZE)
 
@@ -141,13 +162,31 @@ except gb.GurobiError:
 
 ### Print Info
 print()
-counter = 0
 v = model.getVars()
-for m in range(m_bs):
-    for n in range(n_ue):
+'''
+for n in range(n_ue):
+    print('UE%d C %d D %d' % (n, nodes[n]['capacity'], nodes[n]['delay']))
+    for m in range(m_bs):
+        print('BS%d' % m, end=' ')
+        counter = m*640 + n*40
         for t in range(scenario['simTime']):
-            print('%s %g %s %g %s %g %s %g B%d%d%d %d'%(v[counter].varName, v[counter].x, v[counter+1].varName, v[counter+1].x, 
-                v[counter+2].varName, v[counter+2].x, v[counter+3].varName, v[counter+3].x, m, n, t, LOS[m][n][t]))
+            #print('%s %g %s %g %s %g %s %g B%d%d%d %d D%d %d'%(v[counter].varName, v[counter].x, v[counter+1].varName, v[counter+1].x, 
+            #    v[counter+2].varName, v[counter+2].x, v[counter+3].varName, v[counter+3].x, m, n, t, LOS[m][n][t], n, nodes[n]['delay']))
+            print('%g %g %g %g %d'%(v[counter].x, v[counter+1].x, v[counter+2].x,v[counter+3].x, LOS[m][n][t]), end=' ')
             counter+=4
+            if t == scenario['simTime']-1:
+                print()
+'''
+for t in range(scenario['simTime']):
+    print()
+    print('====================================')
+    print()
+    for m in range(m_bs):
+        for n in range(n_ue):
+            #print('Capacity: %d Delay: %d'%(nodes[n]['capacity'],nodes[n]['delay']))
+            counter = m*400 + n*40 + t*4 
+            print('UE %d: %g %g %g %g %d'%(n, v[counter].x, v[counter+1].x, v[counter+2].x,v[counter+3].x, LOS[m][n][t]))
 
+
+model.write('myModel.lp')
 print('obj: %g'% model.objVal)

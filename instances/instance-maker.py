@@ -25,9 +25,9 @@ parser.add_argument('--ymax', help='Scenario y max', type=float, required=False,
 parser.add_argument('--seed', help='Seed for the random number generator', required=False, default=1, type=int)
 parser.add_argument('-B','--blockage', help='Activate random blockage between the BS-UE links', default=False, 
         required=False, action='store_true')
-parser.add_argument('-R','--resourceBlocks', default=275, type=int, required=False)
+parser.add_argument('-R','--resourceBlocks', default=10, type=int, required=False)
 parser.add_argument('-f','--frequency', default=30e9, type=float, required=False)
-parser.add_argument('-O','--outputFile', default='instance.json', required=False)
+parser.add_argument('-O','--outputFile', required=False)
 #The input file must contain at least the base station positions
 parser.add_argument('-I','--inputFile', help='Input file with at least base station positions (x and y, one per line)',
                     required=False)
@@ -64,21 +64,21 @@ if args.baseStations == 1 and args.inputFile == None:
         'subcarrierSpacing': (2**args.subcarrierSpacing)*15e3,
         'txPower': 30, #dBm
         'position': {
-            'x': args.xmin + (args.xmax-args.xmin)/2,
+            'x': args.xmin + (args.xmax-args.xmin)/4,
             'y': args.ymin + (args.ymax-args.ymin)/2
             }
         })
-#    data['baseStation'].append({
-#        'uuid': str(uuid.uuid4()),
-#        'resourceBlocks': args.resourceBlocks,
-#        'frequency': args.frequency,
-#        'subcarrierSpacing': (2**args.subcarrierSpacing)*15e3,
-#        'txPower': 30, #dBm
-#        'position': {
-#            'x': args.xmax - (args.xmax-args.xmin)/4,
-#            'y': args.ymin + (args.ymax-args.ymin)/2
-#            }
-#        })
+    data['baseStation'].append({
+        'uuid': str(uuid.uuid4()),
+        'resourceBlocks': args.resourceBlocks,
+        'frequency': args.frequency,
+        'subcarrierSpacing': (2**args.subcarrierSpacing)*15e3,
+        'txPower': 30, #dBm
+        'position': {
+            'x': args.xmax - (args.xmax-args.xmin)/4,
+            'y': args.ymin + (args.ymax-args.ymin)/2
+            }
+        })
 
 elif args.baseStations > 1 and args.inputFile == None:
     print('Base Station position files not specified')
@@ -114,18 +114,37 @@ if not args.notRandomUe:
             x = np.random.uniform(args.xmin,args.xmax)
             y = np.random.uniform(args.ymin,args.ymax)
 
+        '''
         if args.staticCapacity:
             #The capacity requirement does not varies with the time
             cap = [np.random.choice([0,1e5,5e5,1e6,5e6,1e7])*abs(np.random.normal(5,2.5))]*args.simTime
+
         else:
             cap = [np.random.choice([0,1e5,5e5,1e6,5e6,1e7])*abs(np.random.normal(5,2.5)) for i in range(args.simTime)]
 
         delay = np.random.randint(1,5)
+        '''
 
+        
+        classOfService = [[500e3, 1000],[500e3, 300], [1e6, 100], [5e6, 100],[1e7, 10]]
+        userType = np.random.choice(range(5), p=[0.4, 0.3, 0.1, 0.1, 0.1])
+
+        active = np.random.randint(10)
+        cap = np.zeros(10).tolist()
+        delay = np.zeros(10).tolist()
+        cap[active] = classOfService[userType][0]
+        delay[active] = classOfService[userType][1]
+        
+        if int(i/2)%2 == 0:
+            cap = 10
+        else:
+            cap = 5
+        
         data['userEquipment'].append({
             'uuid': str(uuid.uuid4()),
             'capacity': cap,
-            'delay': delay,
+            'delay': 1, #classOfService[userType][1],
+            'arrival': int(i/2), # tarrival,
             'position': {
                 'x': x,
                 'y': y
@@ -142,12 +161,32 @@ elif args.inputFile == None and args.notRandomUe:
 
 if args.blockage:
     data['blockage'] = []
+    data['blockage'].append([])
+    data['blockage'].append([])
     for m in range(len(data['baseStation'])):
-        data['blockage'].append([])
+        #data['blockage'].append([])
         for n in range(args.userEquipments):
-            data['blockage'][m].append([])
+            #data['blockage'][m].append([])
+            if m == 0:
+                data['blockage'][0].append([])
+                data['blockage'][1].append([])
             for t in range(args.simTime):
-                data['blockage'][m][n].append(np.random.randint(2))
+                if data['userEquipment'][n]['capacity'] == 10:
+                    data['blockage'][m][n].append(1)
+                elif m == 0:
+                    if n%2==0:
+                        data['blockage'][0][n].append(0)#np.random.randint(2))
+                        data['blockage'][1][n].append(1)#np.random.randint(2))
+                    else:
+                        data['blockage'][0][n].append(1)#np.random.randint(2))
+                        data['blockage'][1][n].append(0)#np.random.randint(2))
+                elif m==1:
+                    continue
 
-with open(args.outputFile, 'w') as outfile:
+if args.outputFile == None:
+    outname = 'instance-'+str(args.baseStations)+'-'+str(args.userEquipments)+\
+        '-'+str(args.simTime)+'-'+str(args.seed)+'.json'
+else:
+    outname = args.outputFile
+with open(outname, 'w') as outfile:
     json.dump(data, outfile, indent=4)
