@@ -111,6 +111,6 @@ for m in range(n_BS):
 
 f.close()
 
-outname = 'mobility.json'
+outname = str(density)+'-'+str(args.vx)-'-'+str(args.vy)+'-'+str(args.seed) #'mobility.json'
 with open(outname, 'w') as outfile:
     json.dump(data, outfile, indent=4)
