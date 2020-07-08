@@ -12,6 +12,7 @@ parser.add_argument("--vx", type=int, required=False, default=0)
 parser.add_argument("--vy", type=int, required=False, default=90)
 parser.add_argument("-b","--blockageDensity", type=float, required=False, default=0.001)
 parser.add_argument("-t","--simTime", type=int, required=False, default=12000)
+parser.add_argument("-f","--outname", required=False, default = 'mobility.json')
 parser.add_argument("--blockage2", required=False, action='store_true')
 
 
@@ -111,6 +112,8 @@ for m in range(n_BS):
 
 f.close()
 
-outname = str(density)+'-'+str(args.vx)-'-'+str(args.vy)+'-'+str(args.seed) #'mobility.json'
-with open(outname, 'w') as outfile:
-    json.dump(data, outfile, indent=4)
+#outname = args.outname #str(density)+'-'+str(args.vx)-'-'+str(args.vy)+'-'+str(args.seed) #'mobility.json'
+#with open(outname, 'w') as outfile:
+#    json.dump(data, outfile, indent=4)
+y = json.dumps(data, indent=4)
+print(y)
