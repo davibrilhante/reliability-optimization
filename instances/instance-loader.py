@@ -39,7 +39,8 @@ data['scenario'] = {
         'ymin': int(lines[2]),
         'xmax': int(lines[3]),
         'ymax': int(lines[4])
-        }
+        },
+    'blockageDensity': args.blockageDensity
     }
 
 #data['channel'] = []
@@ -114,6 +115,6 @@ f.close()
 
 #outname = args.outname #str(density)+'-'+str(args.vx)-'-'+str(args.vy)+'-'+str(args.seed) #'mobility.json'
 #with open(outname, 'w') as outfile:
-#    json.dump(data, outfile, indent=4)
+    #json.dump(data, outfile, indent=4)
 y = json.dumps(data, indent=4)
 print(y)
