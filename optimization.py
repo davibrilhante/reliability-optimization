@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#
 
 import json
 import numpy as np
@@ -27,15 +28,13 @@ def calc_recv(base, user, channel, t=0):
 def calc_snr(base, user, channel, t=0):
     noise_power = channel['noisePower']
 
-#    power_linear = 10*(calc_recv(base, user, channel, t)/10)
-#    noise_power = 10*(noise_power/10)
-#    return np.log2(1 + (power_linear/noise_power))
     return calc_recv(base, user, channel, t) - noise_power
 
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-i','--inputFile', help='Instance json input file')
+parser.add_argument('-p','--plot', action='store_true', help='Enables plot')
 args = parser.parse_args()
 
 network = []
@@ -90,12 +89,12 @@ for p in range(m_bs):
                     beta[p][q][n].append(1)
                 else:
                     beta[p][q][n].append(0)
-                #print(p, q, beta[p][q][n][t], SNR[p][n][t], SNR[q][n][t])
 
 
 R = []
 for bs in network:
     R.append(bs['resourceBlocks'])
+
 
 ### Create environment and model
 optEnv = gb.Env('myEnv.log')
@@ -110,17 +109,14 @@ model.presolve().setParam(GRB.Param.PreQLinearize,1)
 w = []
 x = []
 y = []
-#r = []
 for m in range(m_bs):
     w.append([])
     x.append([])
     y.append([])
-    #r.append([])
     for n in range(n_ue):
         w[m].append([])
         x[m].append([])
         y[m].append([])
-        #r[m].append([])
         for t in range(scenario['simTime']):
             w[m][n].append(model.addVar(vtype=GRB.BINARY, 
                         name='w'+str(m)+str(n)+str(t)))
@@ -131,8 +127,6 @@ for m in range(m_bs):
             y[m][n].append(model.addVar(vtype=GRB.BINARY, 
                         name='y'+str(m)+str(n)+str(t)))
 
-            #r[m][n].append(model.addVar(vtype=GRB.INTEGER, 
-            #            name='r'+str(m)+str(n)+str(t)))
 
 
 ### Add constraints to the model
@@ -148,15 +142,8 @@ for m in range(m_bs):
                     >= ue['capacity']*x[m][n][t])
 
 
-# 2 - Resource Blocks boudaries constraints
-#for m in range(m_bs):
-#    for t in range(scenario['simTime']):
-#        model.addConstr(sum(r[m][n][t] for n in range(n_ue)) <= R[m])
-# ---> Does not make sense anymore as we are allocationg the whole bandwidth
-#      available to the UE (The system became TDMA)
 
-# 3.1 - LOS condition and UE association limit constraint. Each UE can be associate with only one BS
-#for m in range(m_bs):
+# 3 - LOS condition and UE association limit constraint. Each UE can be associate with only one BS
 for n in range(n_ue):
     for t in range(scenario['simTime']):
         for m in range(m_bs):
@@ -226,11 +213,12 @@ for p,q in bs_pairs:
 #
 # 1 - Maximize the number of users which delay and capacity requirements were
 # fulfilled
-model.setObjective(sum(sum(sum(SNR[m][n][t]*(x[m][n][t]+y[m][n][t]) for t in range(scenario['simTime'])) for n in range(n_ue)) for m in range(m_bs)), 
+model.setObjective(sum(sum(sum((1-gamma[m][n][t])*(x[m][n][t]+y[m][n][t]) for t in range(scenario['simTime'])) for n in range(n_ue)) for m in range(m_bs)), 
         GRB.MAXIMIZE)
 
 
-model.write('myModel.lp')
+#model.write('myModel.lp')
+
 ### Compute optimal Solution
 try:
     model.optimize()
@@ -243,6 +231,7 @@ print()
 v = model.getVars()
 n_var = 3
 x = [[] for i in range(m_bs)]
+y = [[] for i in range(m_bs)]
 for t in range(scenario['simTime']):
     for n in range(n_ue):
         for m in range(m_bs):
@@ -253,33 +242,74 @@ for t in range(scenario['simTime']):
             #    print('BS %d: %g %g %g %d'%(m, v[counter].x, v[counter+1].x, v[counter+2].x, SNR[m][n][t]))
             if v[counter+2].x == 1:
                 x[m].append(20)#SNR[m][n][t])
+                y[m].append(1)#SNR[m][n][t])
             else:
                 x[m].append(-1)
+                y[m].append(0)
             
 
 print('obj: %g'% model.objVal)
 
-from matplotlib import pyplot as plt
-plos = []
-for m in range(m_bs):
-    plos.append([])
-    for i in LOS[m][0]:
-        if i == 1:
-            plos[m].append(m+1)
-        else:
-            plos[m].append(-1)
 
-colors = ['b','g','orange','r']
+##################### Collecting network results ##############################
+print('\n\n\n@@@@@')
+
+#Calculating number of handovers
+associated = []
+for t in range(scenario['simTime']):
+    for m in range(m_bs):
+        if y[m][t] == 1:
+            if (len(associated) > 0 and associated[-1] != m) or len(associated)==0:
+                associated.append(m)
+print(len(associated))
+            
+#Calculating Ping Pong Rate
+num = 0
 for m in range(m_bs):
-    plt.plot(SNR[m][0], label='BS '+str(m), color=colors[m])
-    plt.scatter(range(scenario['simTime']),x[m], color=colors[m], marker='o', s=8)
-    plt.scatter(range(scenario['simTime']),plos[m], color=colors[m], marker='o', s=8)
-'''
-for i in range(24):
-    plt.vlines(i*500, 0, 20, linestyle='--')
-'''
-plt.ylabel('SNR')
-plt.xlabel('Time (mS)')
-plt.legend()
-plt.ylim(0,25)
-plt.show()
+    if associated.count(m)>0:
+        num+= 1 - associated.count(m)
+rate = num/len(associated)
+print(rate)
+
+#Calculating Capacity achived/Throughput
+throughput = []
+for t in range(scenario['simTime']):
+    for m in range(m_bs):
+        if y[m][t] == 1:
+            throughput.append(12*network[m]['subcarrierSpacing']*R[m]*np.log2(1+SNR[m][0][t]))
+print(np.mean(throughput))
+
+
+#Calculating Packets Lost
+packetsSent = []
+for n,ue in enumerate(nodes):
+    temp = []
+    for m in range(m_bs):
+        temp.append(y[m].count(1))
+    packetsSent.append(1 - sum(temp)/ue['nPackets'])
+print(np.mean(packetsSent))
+
+############################## PLOT SECTION ###################################
+if args.plot:
+    from matplotlib import pyplot as plt
+    plos = []
+    for m in range(m_bs):
+        plos.append([])
+        for i in LOS[m][0]:
+            if i == 1:
+                plos[m].append(m+1)
+            else:
+                plos[m].append(-1)
+
+    colors = ['b','g','orange','r']
+    for m in range(m_bs):
+        plt.plot(SNR[m][0], label='BS '+str(m), color=colors[m])
+        plt.scatter(range(scenario['simTime']),x[m], color=colors[m], marker='o', s=8)
+        plt.scatter(range(scenario['simTime']),plos[m], color=colors[m], marker='o', s=8)
+
+
+    plt.ylabel('SNR')
+    plt.xlabel('Time (mS)')
+    plt.legend()
+    plt.ylim(0,25)
+    plt.show()

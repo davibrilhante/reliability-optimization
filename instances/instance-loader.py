@@ -39,7 +39,8 @@ data['scenario'] = {
         'xmax': int(lines[3]),
         'ymax': int(lines[4])
         },
-    'blockageDensity': args.blockageDensity
+    'blockageDensity': args.blockageDensity,
+    'seed':seed
     }
 
 #data['channel'] = []
