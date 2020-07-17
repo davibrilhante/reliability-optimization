@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-#
+# -*- coding : utf8 -*-
+
 
 import json
 import numpy as np
@@ -7,9 +8,10 @@ import gurobipy as gb
 from gurobipy import GRB
 import argparse
 import sys
+from matplotlib import pyplot as plt
 
 
-def calc_recv(base, user, channel, t=0):
+def calc_recv(base : dict, user : dict, channel : dict, t=0) -> float:
     # Evaluating the new position according with the vehicle speed (Change for vectorial speed)
     new_position_x = user['position']['x'] + (user['speed']['x']/3.6)*(t*1e-3)
     new_position_y = user['position']['y'] + (user['speed']['y']/3.6)*(t*1e-3)
@@ -25,7 +27,7 @@ def calc_recv(base, user, channel, t=0):
     return base['txPower'] + bs_antenna_gain + ue_antenna_gain - path_loss
 
 
-def calc_snr(base, user, channel, t=0):
+def calc_snr(base : dict, user : dict, channel : dict, t=0) -> float:
     noise_power = channel['noisePower']
 
     return calc_recv(base, user, channel, t) - noise_power
@@ -59,6 +61,9 @@ m_bs = len(network)
 
 SNR = []
 
+### -------- Beginning of the Preprocessing phase ----------
+#
+# SNR evaluation
 for m, bs in enumerate(network):
     SNR.append([])
     bw_per_rb = 12*bs['subcarrierSpacing'] #12 subcarriers per resouce block times 120kHz subcarrier spacing
@@ -66,10 +71,9 @@ for m, bs in enumerate(network):
         SNR[m].append([])
         #Adding the time dependency
         for t in range(scenario['simTime']):
-            #SNR[m][n].append(bw_per_rb*calc_snr(bs,ue,channel))
             SNR[m][n].append(calc_snr(bs,ue,channel,t))
 
-
+# Creating Beta array (handover flag)
 tau = 100
 offset = 3 
 beta = []
@@ -82,18 +86,19 @@ for p in range(m_bs):
             temp = []
             for t in range(scenario['simTime']):
                 if SNR[q][n][t] >= SNR[p][n][t] + offset:
-                    temp.append(1)#model.addVar(vtype=GRB.BINARY, 
+                    temp.append(1) 
                 else:
                     temp.append(0)
                 if t>tau and sum(temp[t-tau:t])==tau:
                     beta[p][q][n].append(1)
                 else:
                     beta[p][q][n].append(0)
-
-
+# Resource blocks attribution
 R = []
 for bs in network:
     R.append(bs['resourceBlocks'])
+### ----------- End of preprocessing phase ---------------
+
 
 
 ### Create environment and model
@@ -111,22 +116,27 @@ x = []
 y = []
 for m in range(m_bs):
     w.append([])
-    x.append([])
-    y.append([])
     for n in range(n_ue):
         w[m].append([])
-        x[m].append([])
-        y[m].append([])
         for t in range(scenario['simTime']):
             w[m][n].append(model.addVar(vtype=GRB.BINARY, 
                         name='w'+str(m)+str(n)+str(t)))
 
+for m in range(m_bs):
+    x.append([])
+    for n in range(n_ue):
+        x[m].append([])
+        for t in range(scenario['simTime']):
             x[m][n].append(model.addVar(vtype=GRB.BINARY, 
                         name='x'+str(m)+str(n)+str(t)))
 
+for m in range(m_bs):
+    y.append([])
+    for n in range(n_ue):
+        y[m].append([])
+        for t in range(scenario['simTime']):
             y[m][n].append(model.addVar(vtype=GRB.BINARY, 
                         name='y'+str(m)+str(n)+str(t)))
-
 
 
 ### Add constraints to the model
@@ -169,6 +179,8 @@ for m in range(m_bs):
         for t in range(scenario['simTime']):
             model.addConstr(2*w[m][n][t] == x[m][n][t]+y[m][n][t])
 
+
+
 # 6 - There is no transmission to an UE before it arrives, also y cannot be 1 if after the delay interval
 for n,ue in enumerate(nodes):
 #    model.addConstr(sum(sum(y[m][n][t] for t in range(ue['arrival']+ue['delay'],scenario['simTime'])) for m in range(m_bs)) == 0)
@@ -184,6 +196,8 @@ for n,ue in enumerate(nodes):
             model.addConstr(sum(sum(y[m][n][t] for t in range(arrival+ue['delay'],scenario['simTime'])) for m in range(m_bs)) == 0)
         else:
             model.addConstr(sum(sum(y[m][n][t] for t in range(arrival+ue['delay'],ue['packets'][p+1])) for m in range(m_bs)) == 0)
+
+
 
 # 7 - If the Received power is under the threshold, them the transmission cannot occur through this BS
 for n,ue in enumerate(nodes):
@@ -217,7 +231,7 @@ model.setObjective(sum(sum(sum((1-gamma[m][n][t])*(x[m][n][t]+y[m][n][t]) for t 
         GRB.MAXIMIZE)
 
 
-#model.write('myModel.lp')
+model.write('myModel.lp')
 
 ### Compute optimal Solution
 try:
@@ -227,24 +241,24 @@ except gb.GurobiError:
 
 
 ### Print Info
-print()
 v = model.getVars()
-n_var = 3
+
 x = [[] for i in range(m_bs)]
 y = [[] for i in range(m_bs)]
-for t in range(scenario['simTime']):
+w = [[] for i in range(m_bs)]
+counter =  m_bs*n_ue*scenario['simTime']
+for m in range(m_bs):
     for n in range(n_ue):
-        for m in range(m_bs):
-            #print('Capacity: %d Delay: %d'%(nodes[n]['capacity'],nodes[n]['delay']))
-            counter =  m*n_var*scenario['simTime'] + t*n_var
-            #print('UE %d: %g %g %g %g %d'%(n, v[counter].x, v[counter+1].x, v[counter+2].x,v[counter+3].x, LOS[m][n][t]))
-            #if t % 100 == 0:
-            #    print('BS %d: %g %g %g %d'%(m, v[counter].x, v[counter+1].x, v[counter+2].x, SNR[m][n][t]))
-            if v[counter+2].x == 1:
-                x[m].append(20)#SNR[m][n][t])
-                y[m].append(1)#SNR[m][n][t])
+        for t in range(scenario['simTime']):
+            if v[counter+m*scenario['simTime']+t].x == 1:
+                x[m].append(1)
+
             else:
-                x[m].append(-1)
+                x[m].append(0)
+
+            if v[(2*counter)+m*scenario['simTime']+t].x == 1:
+                y[m].append(1)
+            else:
                 y[m].append(0)
             
 
@@ -254,30 +268,44 @@ print('obj: %g'% model.objVal)
 ##################### Collecting network results ##############################
 print('\n\n\n@@@@@')
 
-#Calculating number of handovers
-associated = []
-for t in range(scenario['simTime']):
+# Data collecteed per UE
+for _,ue in enumerate(nodes):
+    print(ue['uuid'])
+    # Fraction of time throughput requirement was fulfiled
+    time_cap_attended = []
     for m in range(m_bs):
-        if y[m][t] == 1:
-            if (len(associated) > 0 and associated[-1] != m) or len(associated)==0:
-                associated.append(m)
-print(len(associated))
-            
-#Calculating Ping Pong Rate
-num = 0
-for m in range(m_bs):
-    if associated.count(m)>0:
-        num+= 1 - associated.count(m)
-rate = num/len(associated)
-print(rate)
+        time_cap_attended.append(sum(y[m]))
+    print(sum(time_cap_attended)/ue['nPackets'])
 
-#Calculating Capacity achived/Throughput
-throughput = []
-for t in range(scenario['simTime']):
+    time_delay_attended = []
     for m in range(m_bs):
-        if y[m][t] == 1:
-            throughput.append(12*network[m]['subcarrierSpacing']*R[m]*np.log2(1+SNR[m][0][t]))
-print(np.mean(throughput))
+        time_delay_attended.append(sum(y[m]))
+    print(sum(time_delay_attended)/ue['nPackets'])
+
+    #Calculating number of handovers
+    associated = []
+    for t in range(scenario['simTime']):
+        for m in range(m_bs):
+            if y[m][t] == 1:
+                if (len(associated) > 0 and associated[-1] != m) or len(associated)==0:
+                    associated.append(m)
+    print(len(associated))
+                
+    #Calculating Ping Pong Rate
+    num = 0
+    for m in range(m_bs):
+        if associated.count(m)>0:
+            num+= 1 - associated.count(m)
+    rate = num/len(associated)
+    print(rate)
+
+    #Calculating Capacity achived/Throughput
+    throughput = []
+    for t in range(scenario['simTime']):
+        for m in range(m_bs):
+            if y[m][t] == 1:
+                throughput.append(12*network[m]['subcarrierSpacing']*R[m]*np.log2(1+SNR[m][0][t]))
+    print(np.mean(throughput))
 
 
 #Calculating Packets Lost
@@ -291,7 +319,6 @@ print(np.mean(packetsSent))
 
 ############################## PLOT SECTION ###################################
 if args.plot:
-    from matplotlib import pyplot as plt
     plos = []
     for m in range(m_bs):
         plos.append([])
