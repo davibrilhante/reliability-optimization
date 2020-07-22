@@ -1,0 +1,9 @@
+*.json
+*.swp
+*.log
+*.lp
+*.tar.gz
+lixo
+lixao
+out/
+__pycache__

@@ -13,8 +13,10 @@ def blockers_gen(rate, scenario, Plot = False):
     totalArea = (scenario['boundaries']['xmax']-scenario['boundaries']['xmin'])*(
                 scenario['boundaries']['ymax']-scenario['boundaries']['ymin'])
 
+    totalBlockers = np.random.poisson(rate*totalArea)
+
     nBlockers = 0 
-    while(nBlockers < rate*totalArea):
+    while(nBlockers < totalBlockers):#rate*totalArea):
         blockers['objects'].append({})
         blockers['objects'][-1]['nVertices'] = 4 #All objects are quadrilaterals
 
@@ -44,9 +46,12 @@ def blockage(rate, scenario, baseStations, userEquipments, Filter=1, Plot = Fals
     blockage = []
     gamma = []
     for m, bs in enumerate(baseStations):
+        #print('\n')
+        #print(m,end='')
         blockage.append([])
         gamma.append([])
         for n, user in enumerate(userEquipments):
+            #print(n,end='')
             blockage[m].append([])
             gamma[m].append([])
             listOfBlockers = []
