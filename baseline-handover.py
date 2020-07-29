@@ -197,10 +197,10 @@ class MobileUser(object):
             
             #NLOS condition
             if self.blockage[uuid][self.env.now] == 0:
-                pathloss = 61.4 + 20*np.log10(distance)
+                pathloss = 61.4 + 20.0*np.log10(distance)
             #LOS condition
             else:
-                pathloss = 72 + 29.2*np.log10(distance)
+                pathloss = 72.0 + 29.2*np.log10(distance)
 
             #pl_0 = 20*np.log10(4*np.pi/wavelength)
             #pathloss = pl_0 + 10*self.channel['lossExponent']*np.log10(distance)
@@ -235,7 +235,7 @@ class MobileUser(object):
             self.env.process(self.signalQualityCheck())
 
             snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
-            print(self.env.now, maxRSRP, self.listedRSRP[maxRSRP], self.servingBS, self.listedRSRP[self.servingBS])
+            #print(self.env.now, maxRSRP, self.listedRSRP[maxRSRP], self.servingBS, self.listedRSRP[self.servingBS], snr)
             rate = self.listBS[self.servingBS].bandwidth*np.log2(1 + snr)
             self.kpi['throughput'].append(rate)
 
@@ -323,7 +323,9 @@ class MobileUser(object):
         for t in self.packetArrivals:
             yield self.env.timeout(t - self.env.now)
             if self.sync and self.servingBS != None:
-                self.kpi['deliveryRate'] += 1
+                snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
+                if snr > self.snrThreshold:
+                    self.kpi['deliveryRate'] += 1
 
 
     def addLosInfo(self, los : list, n : int) -> list:
