@@ -103,6 +103,7 @@ for bs in network:
 
 ### Create environment and model
 optEnv = gb.Env('myEnv.log')
+optEnv.setParam('OutputFlag', 0)
 model = gb.Model('newModel', optEnv)
 
 ### Quadratic constraints control
@@ -187,6 +188,7 @@ for m in range(m_bs):
 # 5 - 
 for n,ue in enumerate(nodes):
     model.addConstr(sum(sum(x[m][n][t] for t in range(scenario['simTime'])) for m in range(m_bs)) <= ue['nPackets'])
+    model.addConstr(sum(sum(y[m][n][t] for t in range(scenario['simTime'])) for m in range(m_bs)) <= ue['nPackets'])
 
 
 
@@ -198,6 +200,7 @@ for n,ue in enumerate(nodes):
 
         if p == 0:
             model.addConstr(sum(sum(x[m][n][t] for t in range(arrival)) for m in range(m_bs)) == 0)
+            model.addConstr(sum(sum(y[m][n][t] for t in range(arrival)) for m in range(m_bs)) == 0)
         #else:
         #    model.addConstr(sum(sum(x[m][n][t] for t in range(ue['packets'][p-1]+ue['delay']+1,arrival)) for m in range(m_bs)) == 0)
 
@@ -288,7 +291,7 @@ for m in range(m_bs):
         counter += 1
             
 
-print('obj: %g'% model.objVal)
+#print('obj: %g'% model.objVal)
 
 
 ##################### Collecting network results ##############################
@@ -340,7 +343,7 @@ for n,ue in enumerate(nodes):
     temp = []
     for m in range(m_bs):
         temp.append(y[m][n].count(1))
-    packetsSent.append(1 - sum(temp)/ue['nPackets'])
+    packetsSent.append(sum(temp)/ue['nPackets'])
     print(np.mean(packetsSent))
 
 ############################## PLOT SECTION ###################################
