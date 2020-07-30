@@ -5,6 +5,7 @@ import numpy as np
 import argparse
 import json
 import operator
+import sys
 
 #### 5G NR ENV
 import simutime
@@ -371,7 +372,11 @@ if __name__ == '__main__':
 
     ### Create base data
     with open(args.inputFile) as json_file:
-        data = json.load(json_file)
+        try:
+            data = json.load(json_file)
+        except:
+            sys.exit()
+
         scenario = data['scenario']
         channel = data['channel']
         LOS = data['blockage']

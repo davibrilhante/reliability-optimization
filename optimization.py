@@ -10,7 +10,6 @@ import argparse
 import sys
 from matplotlib import pyplot as plt
 
-
 def calc_recv(base : dict, user : dict, channel : dict, t=0) -> float:
     # Evaluating the new position according with the vehicle speed (Change for vectorial speed)
     new_position_x = user['position']['x'] + (user['speed']['x']/3.6)*(t*1e-3)
@@ -45,7 +44,11 @@ nodes = []
 
 ### Create base data
 with open(args.inputFile) as json_file:
-    data = json.load(json_file)
+    try:
+        data = json.load(json_file)
+    except:
+        sys.exit()
+
     scenario = data['scenario']
     channel = data['channel']
     LOS = data['blockage']
@@ -264,6 +267,7 @@ try:
     model.optimize()
 except gb.GurobiError:
     print('Optimize  failed')
+    sys.exit()
 
 
 ### Print Info
