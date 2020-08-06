@@ -237,8 +237,8 @@ class MobileUser(object):
 
             snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
             #print(self.env.now, maxRSRP, self.listedRSRP[maxRSRP], self.servingBS, self.listedRSRP[self.servingBS], snr)
-            rate = self.listBS[self.servingBS].bandwidth*np.log2(1 + snr)
-            self.kpi['throughput'].append(rate)
+            #rate = self.listBS[self.servingBS].bandwidth*np.log2(1 + snr)
+            #self.kpi['throughput'].append(rate)
 
             # This is the condition of an A3 event, triggering a RSRP measurement
             if self.listedRSRP[maxRSRP] - self.HOHysteresis > self.listedRSRP[self.servingBS] + self.HOOffset:
@@ -327,6 +327,8 @@ class MobileUser(object):
                 snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
                 if snr > self.snrThreshold:
                     self.kpi['deliveryRate'] += 1
+                    rate = self.listBS[self.servingBS].bandwidth*np.log2(1 + snr)
+                    self.kpi['throughput'].append(rate)
 
 
     def addLosInfo(self, los : list, n : int) -> list:
@@ -384,6 +386,11 @@ if __name__ == '__main__':
             network.append(p)
         for p in data['userEquipment']:
             nodes.append(p)
+
+    scenario['simTime'] = min(12000, scenario['simTime'])
+    for ue in nodes:
+        ue['nPackets'] = int(scenario['simTime']/500) - 1
+        ue['capacity'] = 750e6 #Bits per second
 
 
     env = sp.Environment()
