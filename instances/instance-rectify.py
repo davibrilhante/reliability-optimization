@@ -21,11 +21,11 @@ for f in files:
             continue
     
     for n,_ in enumerate(data['userEquipment']):
-        Lambda = 500 #milliseconds
+        Lambda = 500  #milliseconds
         newPackets = int(data['scenario']['simTime']/Lambda - 1)
-        arrival = np.random.poisson(500,newPackets).tolist()
+        arrival = np.random.poisson(Lambda,newPackets).tolist()
         data['userEquipment'][n]['nPackets'] = newPackets
-        data['userEquipment'][n]['packets'] = [sum(arrival[:i]) for i in range(newPackets)]
+        data['userEquipment'][n]['packets'] = [sum(arrival[:i+1]) for i in range(newPackets)]
 
     infile.close()
 
