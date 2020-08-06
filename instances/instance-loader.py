@@ -33,7 +33,7 @@ for i,j in enumerate(lines):
     lines[i] = lines[i].strip()
 
 
-simTime = int(300*3.6*1e3/args.vy)
+simTime = min(args.simTime, int(300*3.6*1e3/args.vy))
 
 density = args.blockageDensity
 
@@ -86,7 +86,9 @@ occupation = [0,0]
 data['userEquipment'] = []
 for i in range(n_UE):
     #counter = i*7 + n_BS*6 + 8
-    arrival = np.random.poisson(500,int(lines[counter+5])).tolist()
+    Lambda = 120
+    nPackets = (simTime/Lambda) - 1
+    arrival = np.random.poisson(Lambda,int(lines[counter+5])).tolist()
     lane = np.random.choice([0,1]) # A lane is 5 meter apart from the centre
     occupation[lane] += 1
 
@@ -107,7 +109,7 @@ for i in range(n_UE):
     'threshold': 20,
     'nPackets': int(lines[counter+5]), 
     #'packets': [int(lines[counter+7+j])  for j in range(int(lines[counter+5]))]
-    'packets': [sum(arrival[:i]) for i in range(int(lines[counter+5]))]
+    'packets': [sum(arrival[:i+1]) for i in range(int(lines[counter+5]))]
     })
 
 

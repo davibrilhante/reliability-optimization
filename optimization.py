@@ -10,7 +10,7 @@ import argparse
 import sys
 from matplotlib import pyplot as plt
 
-def calc_recv(base : dict, user : dict, channel : dict, t=0) -> float:
+def calc_recv(base : dict, user : dict, channel : dict, los : bool, t=0) -> float:
     # Evaluating the new position according with the vehicle speed (Change for vectorial speed)
     new_position_x = user['position']['x'] + (user['speed']['x']/3.6)*(t*1e-3)
     new_position_y = user['position']['y'] + (user['speed']['y']/3.6)*(t*1e-3)
@@ -22,14 +22,20 @@ def calc_recv(base : dict, user : dict, channel : dict, t=0) -> float:
     exponent = channel['lossExponent']
 
     pl_0 = 20*np.log10(4*np.pi/wavelength)
-    path_loss = pl_0 + 10*exponent*np.log10(distance) #- np.random.normal(0,8.96)
+
+    if los:
+        path_loss = pl_0 + 10*2*np.log10(distance) #+ np.random.normal(0,5.8)
+    else:
+        path_loss = pl_0 + 10.6 + 10*2.92*np.log10(distance) #+ np.random.normal(0,8.7)
+
+    #path_loss = pl_0 + 10*exponent*np.log10(distance) #- np.random.normal(0,8.96)
     return base['txPower'] + bs_antenna_gain + ue_antenna_gain - path_loss
 
 
-def calc_snr(base : dict, user : dict, channel : dict, t=0) -> float:
+def calc_snr(base : dict, user : dict, channel : dict, los : bool, t=0) -> float:
     noise_power = channel['noisePower']
 
-    return calc_recv(base, user, channel, t) - noise_power
+    return calc_recv(base, user, channel, los, t) - noise_power
 
 
 
@@ -58,6 +64,11 @@ with open(args.inputFile) as json_file:
     for p in data['userEquipment']:
         nodes.append(p)
 
+scenario['simTime'] = min(12000, scenario['simTime'])
+for ue in nodes:
+    ue['nPackets'] = int(scenario['simTime']/500 - 1)
+    ue['capacity'] = 750e6 #Bits per second
+
 n_ue = len(nodes)
 m_bs = len(network)
 
@@ -69,12 +80,15 @@ SNR = []
 # SNR evaluation
 for m, bs in enumerate(network):
     SNR.append([])
-    bw_per_rb = 12*bs['subcarrierSpacing'] #12 subcarriers per resouce block times 120kHz subcarrier spacing
     for n,ue in enumerate(nodes):
         SNR[m].append([])
         #Adding the time dependency
         for t in range(scenario['simTime']):
-            SNR[m][n].append(calc_snr(bs,ue,channel,t))
+            if LOS[m][n][t] == 1:
+                los = True
+            else:
+                los = False
+            SNR[m][n].append(calc_snr(bs,ue,channel,los,t))
 
 # Creating Beta array (handover flag)
 tau = 640
@@ -96,10 +110,13 @@ for p in range(m_bs):
                     beta[p][q][n].append(1)
                 else:
                     beta[p][q][n].append(0)
+
+
 # Resource blocks attribution
 R = []
 for bs in network:
-    R.append(bs['resourceBlocks'])
+    bw_per_rb = 12*bs['subcarrierSpacing'] #12 subcarriers per resouce block times 120kHz subcarrier spacing
+    R.append(bw_per_rb*bs['resourceBlocks'])
 ### ----------- End of preprocessing phase ---------------
 
 
@@ -115,9 +132,10 @@ model.presolve().setParam(GRB.Param.PreQLinearize,1)
 
 
 ### Add variables to the model
-w = []
 x = []
 y = []
+'''
+w = []
 for m in range(m_bs):
     w.append([])
     for n in range(n_ue):
@@ -125,7 +143,7 @@ for m in range(m_bs):
         for t in range(scenario['simTime']):
             w[m][n].append(model.addVar(vtype=GRB.BINARY, 
                         name='w'+str(m)+str(n)+str(t)))
-
+#'''
 for m in range(m_bs):
     x.append([])
     for n in range(n_ue):
@@ -150,30 +168,37 @@ for m in range(m_bs):
 for m in range(m_bs):
     for n,ue in enumerate(nodes):
         for t in range(scenario['simTime']):
+            model.addConstr(ue['capacity']*x[m][n][t] <= 
+                    R[m]*np.log2(1+SNR[m][n][t]))#*LOS[m][n][t])
+
             #model.addConstr(r[m][n][t]*LOS[m][n][t] 
             #        >= ue['capacity']*x[m][n][t])
-            model.addConstr(R[m]*LOS[m][n][t]
-                    >= ue['capacity']*x[m][n][t])
+            #model.addConstr(R[m]*LOS[m][n][t]
+            #        >= ue['capacity']*x[m][n][t])
 
 
 
 # 3 - LOS condition and UE association limit constraint. Each UE can be associate with only one BS
 for n in range(n_ue):
     for t in range(scenario['simTime']):
+        '''
         for m in range(m_bs):
             if LOS[m][n][t] == 1: 
                 los=1
                 break
             else: 
                 los=0
-        model.addConstr(sum(x[m][n][t] for m in range(m_bs)) <= los)
-        model.addConstr(sum(y[m][n][t] for m in range(m_bs)) <= los)
+        '''
+        model.addConstr(sum(x[m][n][t] for m in range(m_bs)) <=1)# los)
+        model.addConstr(sum(y[m][n][t] for m in range(m_bs)) <=1)# los)
 
 
 # 4 - Delay requirement constraints
 for m, bs in enumerate(network):
     for n,ue in enumerate(nodes):
-        for p, arrival in enumerate(ue['packets']):
+        #for p, arrival in enumerate(ue['packets']):
+        for p in range(ue['nPackets']):
+            arrival = ue['packets'][p]
             #model.addConstr(sum(sum(x[m][n][k] for k in range(arrival,arrival+ue['delay'])) for m in range(m_bs))
             #        == sum(sum(y[m][n][k] for k in range(arrival,arrival+ue['delay'])) for m in range(m_bs)))
             model.addConstr(
@@ -187,7 +212,7 @@ for m in range(m_bs):
     for n in range(n_ue):
         for t in range(scenario['simTime']):
             model.addConstr(2*w[m][n][t] == x[m][n][t]+y[m][n][t])
-'''
+#'''
 # 5 - 
 for n,ue in enumerate(nodes):
     model.addConstr(sum(sum(x[m][n][t] for t in range(scenario['simTime'])) for m in range(m_bs)) <= ue['nPackets'])
@@ -198,7 +223,9 @@ for n,ue in enumerate(nodes):
 # 6 - There is no transmission to an UE before it arrives, also y cannot be 1 if after the delay interval
 for n,ue in enumerate(nodes):
 #    model.addConstr(sum(sum(y[m][n][t] for t in range(ue['arrival']+ue['delay'],scenario['simTime'])) for m in range(m_bs)) == 0)
-    for p, arrival in enumerate(ue['packets']):
+    #for p, arrival in enumerate(ue['packets']):
+    for p in range(ue['nPackets']):
+        arrival = ue['packets'][p]
         model.addConstr(sum(sum(y[m][n][t] for t in range(arrival,arrival+ue['delay'])) for m in range(m_bs)) <= 1)
 
         if p == 0:
@@ -217,7 +244,8 @@ for n,ue in enumerate(nodes):
 # 7 - If the Received power is under the threshold, them the transmission cannot occur through this BS
 for n,ue in enumerate(nodes):
     for t in range(scenario['simTime']):
-        model.addConstr(sum((SNR[m][n][t] - ue['threshold'])*x[m][n][t]*LOS[m][n][t] for m in range(m_bs)) >= 0)
+        #model.addConstr(sum((SNR[m][n][t] - ue['threshold'])*x[m][n][t]*LOS[m][n][t] for m in range(m_bs)) >= 0)
+        model.addConstr(sum((SNR[m][n][t] - ue['threshold'])*x[m][n][t] for m in range(m_bs)) >= 0)
 
 bs_pairs = []
 for i in range(m_bs):
@@ -227,8 +255,11 @@ for i in range(m_bs):
 # 8 - 
 for p,q in bs_pairs:
     for n,ue in enumerate(nodes):
-        for k,arrival  in enumerate(ue['packets']):
-            if k < len(ue['packets'])- 1:
+        #for k,arrival  in enumerate(ue['packets']):
+        for k in range(ue['nPackets']):
+            arrival = ue['packets'][n]
+            #if k < len(ue['packets'])- 1:
+            if k < ue['nPackets'] - 1:
                 for t1 in range(ue['delay']):
                     for t2 in range(ue['delay']):
                         arrival2 = ue['packets'][k+1]
@@ -282,13 +313,13 @@ for m in range(m_bs):
     for n in range(n_ue):
         #print(start + counter*scenario['simTime'], 2*start + counter*scenario['simTime'])
         for t in range(scenario['simTime']):
-            if v[start + counter*scenario['simTime']+t].x == 1:
+            if v[counter*scenario['simTime']+t].x == 1:
                 x[m][n].append(1)
 
             else:
                 x[m][n].append(0)
 
-            if v[(2*start) + counter*scenario['simTime']+t].x == 1:
+            if v[start + counter*scenario['simTime']+t].x == 1:
                 y[m][n].append(1)
             else:
                 y[m][n].append(0)
@@ -337,8 +368,9 @@ for n,ue in enumerate(nodes):
     throughput = []
     for t in range(scenario['simTime']):
         for m in range(m_bs):
-            if y[m][n][t] == 1:
-                throughput.append(12*network[m]['subcarrierSpacing']*R[m]*np.log2(1+SNR[m][0][t]))
+            if x[m][n][t] == 1:
+                #throughput.append(12*network[m]['subcarrierSpacing']*R[m]*np.log2(1+SNR[m][n][t]))
+                throughput.append(R[m]*np.log2(1+SNR[m][n][t]))
     print(np.mean(throughput))
 
 
@@ -346,9 +378,22 @@ for n,ue in enumerate(nodes):
     packetsSent = []
     temp = []
     for m in range(m_bs):
-        temp.append(y[m][n].count(1))
+        temp.append(x[m][n].count(1))
     packetsSent.append(sum(temp)/ue['nPackets'])
     print(np.mean(packetsSent))
+
+    #Average delay
+    delay = []
+    for m in range(m_bs):
+        #for k in ue['packets']:
+        for p in range(ue['nPackets']):
+            k = ue['packets'][p]
+            for t in range(k, k+100):
+                if t < scenario['simTime'] and x[m][n][t] == 1:
+                    delay.append(t - k)
+                    break
+    print(np.mean(delay))
+        
 
 ############################## PLOT SECTION ###################################
 if args.plot:
@@ -366,7 +411,7 @@ if args.plot:
         for m in range(m_bs):
             plot1 = np.array(x[m][n])*(5*(n+1))
             plot2 = np.array(y[m][n])*(5*(n+3))
-            #plt.plot(SNR[m][n], label='BS '+str(m), color=colors[m])
+            plt.plot(SNR[m][n], label='BS '+str(m), color=colors[m])
             if n == 0:
                 plt.scatter(range(scenario['simTime']),plot1, color=colors[m], marker='s', s=8, label='BS '+str(m))
             else:
@@ -378,5 +423,5 @@ if args.plot:
     plt.ylabel('SNR')
     plt.xlabel('Time (mS)')
     plt.legend()
-    plt.ylim(0,25)
+    #plt.ylim(0,35)
     plt.show()
