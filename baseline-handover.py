@@ -120,6 +120,7 @@ class MobileUser(object):
         self.y = ueDict['position']['y']
         self.Vx = ueDict['speed']['x']
         self.Vy = ueDict['speed']['y']
+        self.delay = ueDict['delay']
         self.channel = scenario.channel
         self.env = scenario.env
         self.packetArrivals = ueDict['packets']
@@ -160,11 +161,13 @@ class MobileUser(object):
         #self.handoverEvent = 'A3_EVENT'
 
         self.kpi = {
+                'partDelay' : 0,
                 'handover' : 0,
                 'handoverFail' : 0,
                 'pingpong' : 0,
                 'throughput' : [],
-                'deliveryRate' : 0
+                'deliveryRate' : 0,
+                'delay' : []
                 }
 
         self.blockage = {}
@@ -324,11 +327,24 @@ class MobileUser(object):
         for t in self.packetArrivals:
             yield self.env.timeout(t - self.env.now)
             if self.sync and self.servingBS != None:
+                #snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
                 snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
-                if snr > self.snrThreshold:
-                    self.kpi['deliveryRate'] += 1
-                    rate = self.listBS[self.servingBS].bandwidth*np.log2(1 + snr)
-                    self.kpi['throughput'].append(rate)
+                temp = self.snrThreshold
+                timer = 0 
+                while timer < 10:
+                    if snr > self.snrThreshold or snr > temp:
+                        self.kpi['deliveryRate'] += 1
+                        rate = self.listBS[self.servingBS].bandwidth*np.log2(1 + max(snr,temp))
+                        self.kpi['throughput'].append(rate)
+                        self.kpi['delay'].append(self.env.now - t)
+                        if self.kpi['delay'][-1] < self.delay:
+                            self.kpi['partDelay'] += 1
+                            
+                        break
+                    else:
+                        temp *= 0.9
+                        yield self.env.timeout(1)
+                        timer += 1
 
 
     def addLosInfo(self, los : list, n : int) -> list:
@@ -336,12 +352,23 @@ class MobileUser(object):
             self.blockage[bs] = los[m][n]
 
     def printKPI(self):
+        self.kpi['uuid'] = self.uuid
+        self.kpi['partDelay'] /= self.nPackets
+        self.kpi['throughput'] = np.mean(self.kpi['throughput'])
+        self.kpi['deliveryRate'] /= self.nPackets
+        self.kpi['delay'] = np.mean(self.kpi['delay'])
+
+        print(json.dumps(self.kpi, indent=4))        
+        '''
         print(self.uuid)
+        print(self.kpi['partDelay']/self.nPackets)
         print(self.kpi['handover'])
         print(self.kpi['pingpong'])
         print(self.kpi['handoverFail'])
         print(np.mean(self.kpi['throughput']))
         print(self.kpi['deliveryRate']/self.nPackets)
+        print(np.mean(self.kpi['delay']))
+        '''
 
 
 
