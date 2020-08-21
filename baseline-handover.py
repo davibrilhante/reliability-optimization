@@ -151,9 +151,9 @@ class MobileUser(object):
         self.qualityIn = -90 #dBm
         self.qualityInCounter = 0
         self.qualityOutCounter = 0
-        self.n310 = 10 #default is 1?
+        self.n310 = 10 #default is 160 (one per millisecond)?
         self.t310 = 100 #milliseconds #default is 1000?
-        self.n311 = 10 #default is 1?
+        self.n311 = 10 #default is 40 (one per millisecond)? 
         self.sync = False
 
         self.HOHysteresis = 1 #dB from 0 to 30
@@ -619,19 +619,21 @@ if __name__ == '__main__':
     nodes = []
 
     ### Create base data
-    with open(args.inputFile) as json_file:
-        try:
+    try:
+        with open(args.inputFile) as json_file:
             data = json.load(json_file)
-        except:
-            sys.exit()
+    except Exception as e:
+        print(e)
+        print(10)
+        sys.exit()
 
-        scenario = data['scenario']
-        channel = data['channel']
-        LOS = data['blockage']
-        for p in data['baseStation']:
-            network.append(p)
-        for p in data['userEquipment']:
-            nodes.append(p)
+    scenario = data['scenario']
+    channel = data['channel']
+    LOS = data['blockage']
+    for p in data['baseStation']:
+        network.append(p)
+    for p in data['userEquipment']:
+        nodes.append(p)
 
     #scenario['simTime'] = min(12000, scenario['simTime'])
     for ue in nodes:
