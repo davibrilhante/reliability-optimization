@@ -42,14 +42,16 @@ def calc_snr(base : dict, user : dict, channel : dict, los : bool, t=0) -> float
 parser = argparse.ArgumentParser()
 parser.add_argument('-i','--inputFile', help='Instance json input file')
 parser.add_argument('-p','--plot', action='store_true', help='Enables plot')
+parser.add_argument('-s','--save', action='store_true', help='Save statistics')
+
 args = parser.parse_args()
 
 network = []
 nodes = []
 
-
+topdir = 'instances/out2/'
 ### Create base data
-with open(args.inputFile) as json_file:
+with open(topdir+args.inputFile) as json_file:
     try:
         data = json.load(json_file)
     except:
@@ -89,6 +91,8 @@ for m, bs in enumerate(network):
             else:
                 los = False
             SNR[m][n].append(calc_snr(bs,ue,channel,los,t))
+            if gamma[m][n][t] == float('inf') or gamma[m][n][t] == float('nan'):
+                gamma[m][n][t] = 1.0
 
 # Creating Beta array (handover flag)
 tau = 640
@@ -134,7 +138,7 @@ model.presolve().setParam(GRB.Param.PreQLinearize,1)
 ### Add variables to the model
 x = []
 y = []
-'''
+#'''
 w = []
 for m in range(m_bs):
     w.append([])
@@ -228,16 +232,22 @@ for n,ue in enumerate(nodes):
         arrival = ue['packets'][p]
         model.addConstr(sum(sum(y[m][n][t] for t in range(arrival,arrival+ue['delay'])) for m in range(m_bs)) <= 1)
 
+        ### I am using 10 millisecond as a limit for a packet to be sent
         if p == 0:
             model.addConstr(sum(sum(x[m][n][t] for t in range(arrival)) for m in range(m_bs)) == 0)
             model.addConstr(sum(sum(y[m][n][t] for t in range(arrival)) for m in range(m_bs)) == 0)
-        #else:
-        #    model.addConstr(sum(sum(x[m][n][t] for t in range(ue['packets'][p-1]+ue['delay']+1,arrival)) for m in range(m_bs)) == 0)
+
+        else:
+            #model.addConstr(sum(sum(x[m][n][t] for t in range(ue['packets'][p-1]+ue['delay']+1,arrival)) for m in range(m_bs)) == 0)
+            model.addConstr(sum(sum(x[m][n][t] for t in range(ue['packets'][p-1]+10, arrival)) for m in range(m_bs)) == 0)
 
         if p == ue['nPackets']-1:
             model.addConstr(sum(sum(y[m][n][t] for t in range(arrival+ue['delay'],scenario['simTime'])) for m in range(m_bs)) == 0)
+            model.addConstr(sum(sum(x[m][n][t] for t in range(arrival,min(arrival+10, scenario['simTime']))) for m in range(m_bs)) <= 1)
+            model.addConstr(sum(sum(x[m][n][t] for t in range(arrival+10, scenario['simTime'])) for m in range(m_bs)) == 0)
         else:
             model.addConstr(sum(sum(y[m][n][t] for t in range(arrival+ue['delay'],ue['packets'][p+1])) for m in range(m_bs)) == 0)
+            model.addConstr(sum(sum(x[m][n][t] for t in range(arrival,arrival+10)) for m in range(m_bs)) <= 1)
 
 
 
@@ -313,13 +323,13 @@ for m in range(m_bs):
     for n in range(n_ue):
         #print(start + counter*scenario['simTime'], 2*start + counter*scenario['simTime'])
         for t in range(scenario['simTime']):
-            if v[counter*scenario['simTime']+t].x == 1:
+            if v[start + counter*scenario['simTime']+t].x == 1:
                 x[m][n].append(1)
 
             else:
                 x[m][n].append(0)
 
-            if v[start + counter*scenario['simTime']+t].x == 1:
+            if v[2*start + counter*scenario['simTime']+t].x == 1:
                 y[m][n].append(1)
             else:
                 y[m][n].append(0)
@@ -332,6 +342,14 @@ for m in range(m_bs):
 ##################### Collecting network results ##############################
 print('\n\n\n@@@@@')
 
+kpi = { 'partCap' : 0,
+        'partDelay' : 0,
+        'handover' : 0,
+        'pingpong' : 0,
+        'throughput' : 0,
+        'deliveryRate' : 0,
+        'delay' : 0}
+
 # Data collecteed per UE
 for n,ue in enumerate(nodes):
     print(ue['uuid'])
@@ -340,12 +358,14 @@ for n,ue in enumerate(nodes):
     for m in range(m_bs):
         time_cap_attended.append(sum(x[m][n]))
     print(sum(time_cap_attended)/ue['nPackets'])
+    kpi['partCap'] = sum(time_cap_attended)/ue['nPackets']
 
     time_delay_attended = []
     # Fraction of time delay requirement was fulfiled
     for m in range(m_bs):
         time_delay_attended.append(sum(y[m][n]))
     print(sum(time_delay_attended)/ue['nPackets'])
+    kpi['partDelay'] = sum(time_delay_attended)/ue['nPackets']
 
     #Calculating number of handovers
     associated = []
@@ -355,6 +375,7 @@ for n,ue in enumerate(nodes):
                 if (len(associated) > 0 and associated[-1] != m) or len(associated)==0:
                     associated.append(m)
     print(len(associated))
+    kpi['handover'] = len(associated)
                 
     #Calculating Ping Pong Rate
     num = 0
@@ -363,15 +384,18 @@ for n,ue in enumerate(nodes):
             num+= associated.count(m)-1
     rate = num/len(associated)
     print(rate)
+    kpi['pingpong'] = rate
 
     #Calculating Capacity achived/Throughput
     throughput = []
     for t in range(scenario['simTime']):
         for m in range(m_bs):
             if x[m][n][t] == 1:
+                #print(t)
                 #throughput.append(12*network[m]['subcarrierSpacing']*R[m]*np.log2(1+SNR[m][n][t]))
                 throughput.append(R[m]*np.log2(1+SNR[m][n][t]))
     print(np.mean(throughput))
+    kpi['throughput'] = np.mean(throughput)
 
 
     #Calculating Packets Succesfully Sent
@@ -381,6 +405,7 @@ for n,ue in enumerate(nodes):
         temp.append(x[m][n].count(1))
     packetsSent.append(sum(temp)/ue['nPackets'])
     print(np.mean(packetsSent))
+    kpi['deliveryRate'] = np.mean(packetsSent)
 
     #Average delay
     delay = []
@@ -388,12 +413,20 @@ for n,ue in enumerate(nodes):
         #for k in ue['packets']:
         for p in range(ue['nPackets']):
             k = ue['packets'][p]
-            for t in range(k, k+100):
+            l = ue['packets'][p+1]
+            #print(k)
+            for t in range(k, l):
                 if t < scenario['simTime'] and x[m][n][t] == 1:
                     delay.append(t - k)
                     break
     print(np.mean(delay))
+    kpi['delay'] = np.mean(delay)
+    kpi['uuid'] = ue['uuid']
         
+if args.save:
+    filename = 'instances/opt/'+args.inputFile
+    with open(filename, 'w') as jsonfile:
+        json.dump(kpi, jsonfile, indent=4)
 
 ############################## PLOT SECTION ###################################
 if args.plot:
