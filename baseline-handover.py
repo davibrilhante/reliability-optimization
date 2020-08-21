@@ -28,6 +28,7 @@ class BaseStation(object):
         self.antennaGain = 10 #### STUB!!!
 
         self.bandwidth = 12*bsDict['resourceBlocks']*bsDict['subcarrierSpacing']
+        self.resourceBlocks = bsDict['resourceBlocks']
 
         self.associatedUsers = []
         self.inRangeUsers = []
@@ -155,7 +156,7 @@ class MobileUser(object):
         self.n311 = 10 #default is 1?
         self.sync = False
 
-        self.HOHysteresis = 0 #dB from 0 to 30
+        self.HOHysteresis = 1 #dB from 0 to 30
         self.HOOffset = 3 #dB
         self.HOThreshold = -90 #dBm
 
@@ -211,13 +212,18 @@ class MobileUser(object):
             ##### NEED TO INCLUDE BLOCKAGE!!!
             distance = np.hypot(xnow - bs.x, ynow - bs.y)
             wavelength = 3e8/bs.frequency
+            ### There are 2 reference signal at each OFDM symbol, and 4 OFDM
+            ### symbols in a slot carrying reference signals
+            referencesignals = (bs.resourceBlocks*2)*4
             
             #NLOS condition
             if self.blockage[uuid][self.env.now] == 1:
                 pathloss = 61.4 + 20.0*np.log10(distance)
+                    #+ np.mean(np.random.normal(0,5.4,referencesignals)))
             #LOS condition
             else:
                 pathloss = 72.0 + 29.2*np.log10(distance)
+                    #+ np.mean(np.random.normal(0,8.7,referencesignals)))
 
             #pl_0 = 20*np.log10(4*np.pi/wavelength)
             #pathloss = pl_0 + 10*self.channel['lossExponent']*np.log10(distance)
@@ -252,6 +258,7 @@ class MobileUser(object):
         elif self.servingBS == None and self.lastBS != None and self.listedRSRP[self.lastBS] == float('-inf'):
             if not self.reassociationFlag:
                 self.kpi['reassociation'] += 1
+                #print(self.env.now)
                 self.reassociationFlag = True
 
 
