@@ -6,6 +6,9 @@ import argparse
 import json
 import operator
 import sys
+from collections import OrderedDict
+
+from matplotlib import pyplot as plt
 
 #### 5G NR ENV
 import simutime
@@ -138,10 +141,10 @@ class MobileUser(object):
         # which is updated at each time to measure
         self.listedRSRP = { }
 
-        self.sensibility = -120 #dBm
+        self.sensibility = -110 #dBm
         self.antennaGain = 10 #dB (whatever the value that came to my mind)
         self.timeToTrigger = 640 #milliseconds
-        self.timeToMeasure = 20 #millisecond
+        self.timeToMeasure = 1 #20 #millisecond
 
         self.qualityOut =  -110 #dBm
         self.qualityIn = -90 #dBm
@@ -160,11 +163,21 @@ class MobileUser(object):
         self.measOccurring = False
         #self.handoverEvent = 'A3_EVENT'
 
+        self.plotAssociation = []
+        self.plotSNR = []
+        self.plotCapacity = []
+        self.plotLOS = []
+        self.plotMaxRSRP = []
+        self.plotRecvRSRP = [[] for i in self.listBS.keys()]
+
+        self.reassociationFlag = False
+
         self.kpi = {
                 'partDelay' : 0,
                 'handover' : 0,
                 'handoverFail' : 0,
                 'pingpong' : 0,
+                'reassociation' : 0,
                 'throughput' : [],
                 'deliveryRate' : 0,
                 'delay' : []
@@ -200,7 +213,7 @@ class MobileUser(object):
             wavelength = 3e8/bs.frequency
             
             #NLOS condition
-            if self.blockage[uuid][self.env.now] == 0:
+            if self.blockage[uuid][self.env.now] == 1:
                 pathloss = 61.4 + 20.0*np.log10(distance)
             #LOS condition
             else:
@@ -213,7 +226,7 @@ class MobileUser(object):
             if RSRP > self.sensibility:
                 self.listedRSRP[uuid] = RSRP
             else:
-                self.listedRSRP[uuid] = None 
+                self.listedRSRP[uuid] = float('-inf') #None
 
 
     # At each time to measure, the UE updates the list of BS and check
@@ -225,16 +238,24 @@ class MobileUser(object):
             yield self.env.timeout(self.timeToMeasure)
 
 
-    # Checks the handover event cnfition
+    # Checks the handover event condition
     def measurementCheck(self):
         maxRSRP = max(self.listedRSRP.items(), key=operator.itemgetter(1))[0]
+        for n,i in enumerate(self.listedRSRP.keys()):
+            self.plotRecvRSRP[n].append(self.listedRSRP[i])
 
         ### FIRST TIME USER ASSOCIATON
-        if self.servingBS == None:
+        if self.servingBS == None and self.listedRSRP[maxRSRP] > self.sensibility:
             self.servingBS = maxRSRP
             self.sync = True
 
-        else:
+        elif self.servingBS == None and self.lastBS != None and self.listedRSRP[self.lastBS] == float('-inf'):
+            if not self.reassociationFlag:
+                self.kpi['reassociation'] += 1
+                self.reassociationFlag = True
+
+
+        elif self.servingBS != None:
             #Check if the UE is sync with the BS
             self.env.process(self.signalQualityCheck())
 
@@ -252,6 +273,9 @@ class MobileUser(object):
                 if self.triggerTime == 0:
                     #First time A3 condition is satisfied
                     self.triggerTime = self.env.now
+                    #self.sendMeasurementReport(targetBS) 
+
+                    #print('A3 CONDITION SATISFIED', targetBS, self.listedRSRP[targetBS])
 
                 else:
                     # It is not the first time A3 codition is satified by maxRSRP BS 
@@ -259,9 +283,18 @@ class MobileUser(object):
                         #Handover to maxRSRP BS
                         self.sendMeasurementReport(targetBS) 
 
-                    else:
+
+                    ### It is a mess and needs repair!!!
+                    if not self.sync or self.listedRSRP[self.servingBS] < self.qualityOut:
                         #Handover failure
-                        self.kpi['handoverFail'] += 1
+                        #print('HANDOVER FAILURE')
+                        self.lastBS = self.servingBS
+                        self.servingBS = None
+                        self.reassociationFlag = False
+                        if self.measOccurring:
+                            self.kpi['handoverFail'] += 1
+                            self.kpi['handover'] += 1
+                            self.measOcurring = False
 
             # The A3 event condition was not maintained, so the measurement should stop 
             elif self.listedRSRP[maxRSRP] - self.HOHysteresis < self.listedRSRP[self.servingBS] + self.HOOffset:
@@ -269,44 +302,68 @@ class MobileUser(object):
                 if self.triggerTime != 0:
                     self.triggerTime = 0
 
+        '''
+        if self.listedRSRP[self.servingBS] < self.qualityOut:
+            print('CONNECTION WITH SERVING BS LOST')
+            self.servingBS = None
+        '''
+        self.plotAssociation.append(self.servingBS)
+        if self.servingBS == None:
+            self.plotMaxRSRP.append(float('-inf'))
+        else:
+            self.plotMaxRSRP.append(self.listedRSRP[self.servingBS])#self.listedRSRP[maxRSRP])
+
 
 
     # Testing whether the handover did not fail due to be late
     def signalQualityCheck(self):
-        if self.listedRSRP[self.servingBS] < self.qualityOut:
-            downcounter = self.t310
-            while downcounter > 0:
-                self.qualityOutCounter += 1
+        if self.servingBS != None:
+            #print(self.env.now, self.servingBS,self.listedRSRP[self.servingBS])
+            if self.listedRSRP[self.servingBS] < self.qualityOut and self.qualityOutCounter == 0:
+                downcounter = self.t310
+                while downcounter > 0:
+                    self.qualityOutCounter += 1
 
-                if self.qualityOutCounter >= self.n310:
-                    #Start out of sync counter
-                    downcounter -= 1
-                    yield self.env.timeout(1)
-
-                if self.listedRSRP[self.servingBS] >= self.qualityIn:
-                    self.qualityInCounter += 1
-
-                    if self.qualityInCounter >= self.n311:
-                        #Stop out of sync counter 
-                        self.qualityOutCounter = 0
-                        downcounter = self.t310
-                        break
-
-                    else:
-                        #Signal strength is better but the sync still
-                        #unconfirmed by the N311 counter, so T310 continues
+                    if self.qualityOutCounter >= self.n310:
+                        #Start out of sync counter
                         downcounter -= 1
                         yield self.env.timeout(1)
 
-            if downcounter == 0:
-                #out of sync!
-                self.sync = False
+                    if self.listedRSRP[self.servingBS] >= self.qualityIn:
+                        self.qualityInCounter += 1
 
-                #Need to reassociate with the network
-                self.sevingBS = None
+                        if self.qualityInCounter >= self.n311:
+                            #Stop out of sync counter 
+                            self.qualityOutCounter = 0
+                            downcounter = self.t310
+                            break
 
-            self.qualityOutCounter = 0
-            self.qualityInCounter = 0
+                        else:
+                            #Signal strength is better but the sync still
+                            #unconfirmed by the N311 counter, so T310 continues
+                            downcounter -= 1
+                            yield self.env.timeout(1)
+
+                if downcounter == 0:
+                    #out of sync!
+                    self.sync = False
+
+                    self.lastBS = self.servingBS
+                    self.reassociationFlag = False
+                    #Need to reassociate with the network
+                    self.servingBS = None
+                    #print('USER OUT OF SYNC')
+                    
+                    #yield self.env.timeout(1)
+
+                    #print('TRIGGERING NEW ASSOCIATION')
+                    #self.measurementCheck()
+
+                self.qualityOutCounter = 0
+                self.qualityInCounter = 0
+
+        else:
+            self.sync = False
 
 
     #  
@@ -328,13 +385,13 @@ class MobileUser(object):
             yield self.env.timeout(t - self.env.now)
             if self.sync and self.servingBS != None:
                 #snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
-                snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
+                snr = max(0, self.listedRSRP[self.servingBS] - self.channel['noisePower'])
                 temp = self.snrThreshold
                 timer = 0 
                 while timer < 10:
                     if snr > self.snrThreshold or snr > temp:
                         self.kpi['deliveryRate'] += 1
-                        rate = self.listBS[self.servingBS].bandwidth*np.log2(1 + max(snr,temp))
+                        rate = self.listBS[self.servingBS].bandwidth*np.log2(1 + snr)
                         self.kpi['throughput'].append(rate)
                         self.kpi['delay'].append(self.env.now - t)
                         if self.kpi['delay'][-1] < self.delay:
@@ -350,6 +407,160 @@ class MobileUser(object):
     def addLosInfo(self, los : list, n : int) -> list:
         for m,bs in enumerate(self.listBS):
             self.blockage[bs] = los[m][n]
+
+    def plot(self, plotType, subplot=True):
+        plt.figure()
+
+        ### plot association
+        baseIndex = list(self.listBS.keys())
+        association = []
+        
+        plt.xlabel('Measurement Index')
+        handover = []
+        log = { str(i) : [] for i in range(len(baseIndex)+1)}
+        colors = ['slateblue', 'springgreen', 'tomato','silver','orange']
+
+        #print(self.plotAssociation)
+
+        for n,bs in enumerate(self.plotAssociation):
+            if bs == None:
+                association.append(0)
+            else:
+                association.append(baseIndex.index(bs)+1)
+
+            if len(association)>1:
+                #if baseIndex.index(bs)+1 != association[-1]:
+                if bs != self.plotAssociation[n-1]:
+                    handover.append(n)
+
+        if self.kpi['handover']>=1:
+            for i in range(len(handover)+1):
+                if i == 0:
+                    #log[str(association[0])] = [0,handover[0]]
+                    log[str(association[0])].append([0,handover[0]])
+                elif i == len(handover):
+                    #log[str(association[-2])] = [handover[-1],len(association)]
+                    log[str(association[-2])].append([handover[-1],len(association)])
+                else:
+                    #print(association[handover[i-1]])
+                    #log[str(association[handover[i-1]])] = [handover[i-1],handover[i]]
+                    log[str(association[handover[i-1]])].append([handover[i-1],handover[i]])
+                
+        #print(log)
+        #print(handover)
+
+        if plotType == 'MAX_RSRP' or subplot:
+            if subplot:
+                if self.kpi['handover'] == 0:
+                    plt.subplot(311)
+                else:
+                    plt.subplot(221)
+                plt.grid()
+                plt.ylabel('Max RSRP [dBm]')
+            else:
+                plt.ylabel('Maximum Reference Signal Receive Power [dBm]')
+
+            if self.kpi['handover']>0:
+                for n,v in zip(log.keys(), log.values()):
+                    for t in v:
+                        if n == '0':
+                            plt.plot(range(t[0], t[1]),self.plotMaxRSRP[t[0]:t[1]], 
+                                    color=colors[int(n)], 
+                                    label='No BS')
+                        else:
+                            plt.plot(range(t[0], t[1]),self.plotMaxRSRP[t[0]:t[1]], 
+                                    color=colors[int(n)], 
+                                    label='BS '+n)
+            else:
+                plt.plot(self.plotMaxRSRP)
+
+
+        if plotType == 'RECV_RSRP' or subplot:
+            if len(self.listBS.keys()) > 1:
+                if subplot:
+                    plt.subplot(223)
+                    plt.grid()
+                    plt.ylabel('RSRP [dBm]')
+                else:
+                    plt.ylabel('Received Reference Signal Receive Power [dBm]')
+
+                for n, p in enumerate(self.plotRecvRSRP):
+                    plt.plot(p,color=colors[n+1],label='BS '+str(n))
+
+
+
+        if plotType == 'SNR' or subplot:
+            plotter = []
+            if subplot:
+                if self.kpi['handover'] == 0:
+                    plt.subplot(312)
+                else:
+                    plt.subplot(222)
+                plt.grid()
+                plt.ylabel('SNR')
+            else:
+                plt.ylabel('Signal to Noise Ratio')
+
+            for r in self.plotMaxRSRP:
+                plotter.append(max(0, r - self.channel['noisePower']))
+
+            if self.kpi['handover']>0:
+                for n,v in zip(log.keys(), log.values()):
+                    for t in v:
+                        if n == '0':
+                            plt.plot(range(t[0], t[1]),plotter[t[0]:t[1]], 
+                                    color=colors[int(n)], 
+                                    label='No BS')
+                        else:
+                            plt.plot(range(t[0], t[1]),plotter[t[0]:t[1]], 
+                                    color=colors[int(n)], 
+                                    label='BS '+n)
+            else:
+                plt.plot(plotter)
+
+
+        if plotType == 'Capacity' or subplot:
+            plotter = []
+            if subplot:
+                if self.kpi['handover'] == 0:
+                    plt.subplot(313)
+                else:
+                    plt.subplot(224)
+                plt.grid()
+                plt.ylabel('Data Rate [Mbps]')
+            else:
+                plt.ylabel('Achieved Data Rate [Mbps]')
+
+            for r in self.plotMaxRSRP:
+                snr = r - self.channel['noisePower']
+                plotter.append(self.listBS[self.servingBS].bandwidth*np.log2(1 + max(0, snr))/1e6)
+
+            if self.kpi['handover']>0:
+                for n,v in zip(log.keys(), log.values()):
+                    for t in v:
+                        if n == '0':
+                            plt.plot(range(t[0], t[1]),plotter[t[0]:t[1]], 
+                                    color=colors[int(n)], 
+                                    label='No BS')
+                        else:
+                            plt.plot(range(t[0], t[1]),plotter[t[0]:t[1]], 
+                                    color=colors[int(n)], 
+                                    label='BS '+n)
+            else:
+                plt.plot(plotter)
+
+
+        if subplot:
+            plt.subplots_adjust(top=0.92, bottom=0.08, left=0.15, right=0.95, hspace=0.25,
+                    wspace=0.35)
+
+        handles, labels = plt.gca().get_legend_handles_labels()
+        by_label = OrderedDict(zip(labels, handles))
+        plt.legend(by_label.values(), by_label.keys())
+        plt.show()
+
+
+                        
 
     def printKPI(self):
         self.kpi['uuid'] = self.uuid
@@ -391,6 +602,7 @@ class Simulator(object):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-i','--inputFile', help='Instance json input file')
+parser.add_argument('-p','--plot', action='store_true', help='xxx')
 args = parser.parse_args()
 
 
@@ -414,9 +626,9 @@ if __name__ == '__main__':
         for p in data['userEquipment']:
             nodes.append(p)
 
-    scenario['simTime'] = min(12000, scenario['simTime'])
+    #scenario['simTime'] = min(12000, scenario['simTime'])
     for ue in nodes:
-        ue['nPackets'] = int(scenario['simTime']/500) - 1
+        #ue['nPackets'] = int(scenario['simTime']/500) - 1
         ue['capacity'] = 750e6 #Bits per second
 
 
@@ -443,3 +655,10 @@ if __name__ == '__main__':
 
     for _,ue in mobiles.items():
         ue.printKPI()
+
+        if args.plot:
+            #ue.plot('Association')
+            ue.plot('MAX_RSRP')
+            #ue.plot('RECV_RSRP', False)
+            #ue.plot('SNR', False)
+            #ue.plot('Capacity', False)
