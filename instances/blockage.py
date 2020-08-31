@@ -2,6 +2,131 @@ import numpy as np
 from matplotlib import pyplot as plt
 from shapely.geometry.polygon import Polygon
 from shapely.geometry import LineString
+from shapely.geometry import Point
+
+
+class SuperLine(LineString):
+    def __init__(self, points):
+        super().__init__(points)
+
+    def slopecoefficient(self):
+        coords = list(self.coords)
+        if coords[1][0] == coords[0][0]:
+            # Vertical line
+            return float('inf')
+        elif coords[1][1] == coords[0][1]:
+            # Horizontal line
+            return 0
+        else:
+            return (coords[1][1]-coords[0][1])/(coords[1][0]-coords[0][0])
+
+    def slopeangle(self):
+        coords = list(self.coords)
+        if coords[1][0] == coords[1][0]:
+            # Vertical line
+            return float(np.pi/2)
+        elif coords[1][1] == coords[0][1]:
+            # Horizontal line
+            return 0
+        else:
+            return np.arctan2(coords[1][1]-coords[0][1],coords[1][0]-coords[0][0])
+
+    def linearequation(self, form=0):
+        coords = list(self.coords)
+        if form == 0:
+            slope = self.slopecoefficient()
+            y0 = coords[1][1] - slope*coords[1][0]
+            return [slope, y0]
+
+        elif form == 1:
+            # return the line equation given two points in the form ax + by + c
+            a = coords[0][1] - coords[1][1]
+            b = coords[1][0] - coords[0][0]
+            c = coords[0][0]*coords[1][1] - coords[1][0]*coords[0][1]
+            return [a, b, c]
+
+    def whereintersects(self, geometry, infinity=True):
+        if geometry.geom_type == 'Point':
+            if self.intersects(geometry):
+                #In this case, the intersection is the point itself
+                return geometry
+            else:
+                return False
+
+        elif geometry.geom_type == 'LineString':
+            coords = list(geometry.coords)
+            equation1 = self.linearequation()
+
+            #In the case you dont want to consider the line infinity
+            if not infinity:
+                if not self.intersects(geometry):
+                    return False
+
+            if self.contains(geometry):
+                x = coords[0][0]
+                y = coords[0][1]
+                return Point([x,y])
+
+            # Vertical line
+            elif coords[1][0] == coords[0][0]:
+                #They are parallel
+                if equation1[0] == float('inf'):
+                    return False
+
+                x = coords[1][0]
+                y = equation1[0]*coords[1][0] + equation1[1]
+                #print('v', [x,y])
+                return Point([x,y])
+
+            # Horizontal line
+            elif coords[1][1] == coords[0][1]:
+                #They are parallel
+                if equation1[0] == 0:
+                    return False
+
+                y = coords[1][1]
+                x = (coords[1][1] - equation1[1])/equation1[0]
+                #print('h', [x,y])
+                return Point([x,y])
+
+            else:
+                slope = (coords[1][1]-coords[0][1])/(coords[1][0]-coords[0][0])
+                b = coords[1][1] - slope*coords[1][0]
+                equation2 = [slope, b]
+
+                if slope == equation1[0]:
+                    # They are parallel
+                    return False
+
+                else:
+                    x = (equation2[1] - equation1[1])/(equation1[0] - equation2[0])
+                    y = slope*x + b
+                    return Point([x, y])
+
+        elif geometry.geom_type == 'Polygon':
+            if self.intersects(geometry):
+                #generate the polygon boundaries
+                intersectionpoints = []
+                polypoints = list(geometry.exterior.coords)
+                for i in range(len(polypoints)-1):
+                    polygonside = LineString([polypoints[i]]+[polypoints[i+1]])
+                    temp = self.whereintersects(polygonside, False)
+                    if temp:
+                        intersectionpoints.append(temp)
+
+                return intersectionpoints
+
+            else:
+                return False
+
+        else:
+            print('Not a valid geometry type')
+
+    def plot(self, limits):
+        equation = self.linearequation()
+        x = np.linspace(0,limits,100)
+        y = equation[0]*x + equation[1]
+        plt.plot(x, y)
 
 
 
@@ -40,6 +165,47 @@ def blockers_gen(rate, scenario, Plot = False):
     return blockers
 
 
+def advanceintime(polygon, uex, uey, ue, bs):
+    bspoint = Point(bs['position']['x'], bs['position']['y'])
+    uepoint = Point(uex, uey)
+    uetobs = SuperLine(list(uepoint.coords)+list(bspoint.coords))
+    ueroute = SuperLine([(uex, uey),(uex+ue['speed']['x'], uey+ue['speed']['y'])])
+
+    #print(list(bspoint.coords))
+
+    uedirectionx = ue['speed']['x']/abs(ue['speed']['x'])
+    uedirectiony = ue['speed']['y']/abs(ue['speed']['y'])
+
+    points = uetobs.whereintersects(polygon)
+    #print([list(i.coords) for i in points])
+    #uetobs.plot(20)
+
+    polypoints = list(polygon.exterior.coords)
+    polypoints.pop()
+    dist = []
+    for i in range(len(polypoints)):
+        bstovertex = SuperLine(list(bspoint.coords)+[polypoints[i]])
+        intersectionpoint = ueroute.whereintersects(bstovertex)
+        intersectionpoint = list(intersectionpoint.coords)[0]
+        if (uedirectionx*(intersectionpoint[0] - uex) >= 0 and
+                uedirectiony*(intersectionpoint[1] - uey) >= 0):
+            dist.append(np.hypot(intersectionpoint[0]-uex, intersectionpoint[1]-uey))
+        else:
+            dist.append(-1*np.hypot(intersectionpoint[0]-uex, intersectionpoint[1]-uey))
+
+    darkline = max(dist)
+    extremepoint = polypoints[dist.index(darkline)]
+    #print(extremepoint)
+    #print(darkline)
+    bstoextreme = SuperLine(list(bspoint.coords)+[extremepoint])
+    #bstoextreme.plot(20)
+
+    vfinal = (np.hypot(ue['speed']['x'], ue['speed']['y'])/3.6)
+
+    return (darkline/vfinal)*1e3
+
+
+
 def blockage(rate, scenario, baseStations, userEquipments, Filter=1, Plot = False):
     blockers = blockers_gen(rate, scenario,Plot)
 
@@ -51,30 +217,78 @@ def blockage(rate, scenario, baseStations, userEquipments, Filter=1, Plot = Fals
         blockage.append([])
         gamma.append([])
         for n, user in enumerate(userEquipments):
+            '''
+            ### Sort the obstacles by their distances to the UE route
+            ueRoute = LineString([(user['position']['x'],user['position']['y']),
+                    (user['position']['x'] + (user['speed']['x']/3.6)*(scenario['simTime']*1e-3),
+                    user['position']['y'] + (user['speed']['y']/3.6)*(scenario['simTime']*1e-3))])
+            #origin = Point(0,0)
+            origin = Point(bs['position']['x'],bs['position']['y'])
+
+            dists = [origin.distance(i['polygon']) for i in blockers['objects']]
+            temp = list(zip(dists,blockers['objects']))
+
+            sortblockers = [x for _,x in sorted(temp, key=lambda pair:pair[0])]
+            '''
+
             #print(n,end='')
             blockage[m].append([])
-            gamma[m].append([])
+            #gamma[m].append([])
             listOfBlockers = []
+            advance = float('-inf')
             for t in range(scenario['simTime']):
-                gamma[m][n].append(0)
-                ueNewX = user['position']['x'] + (user['speed']['x']/3.6)*(t*1e-3)
-                ueNewY = user['position']['y'] + (user['speed']['y']/3.6)*(t*1e-3)
                 block = False
-                line = LineString([(bs['position']['x'], bs['position']['y']), (ueNewX, ueNewY)])
-                for b in blockers['objects']:
-                    if line.crosses(b['polygon']):
-                        index = blockers['objects'].index(b)
-                        if listOfBlockers.count(index) == 0:
-                            listOfBlockers.append(index)
-                        block = True
+                #if t%1000 == 0:
+                #    print(t)
+
+                #gamma[m][n].append(0)
+                if t <= advance:
+                    block = True
+
+                else:
+                    ueNewX = user['position']['x'] + (user['speed']['x']/3.6)*(t*1e-3)
+                    ueNewY = user['position']['y'] + (user['speed']['y']/3.6)*(t*1e-3)
+
+                    line = LineString([(bs['position']['x'], bs['position']['y']), (ueNewX, ueNewY)])
+
+                    #for b in sortblockers:
+                    for b in blockers['objects']:
+                        '''
+                        center = list(b['polygon'].centroid.coords)[0]
+                        if ((center[0] + 10 - bs['position']['x'] < 0) and  
+                                (ueNewX - bs['position']['x'] > center[0] + 10 - bs['position']['x'])):
+                            continue
+                        '''
+
+                        #if line.crosses(b['polygon']):
+                        if line.intersects(b['polygon']):
+                            #print(t, ueNewX, ueNewY)
+                            advance = t + advanceintime(b['polygon'], ueNewX, ueNewY, user, bs)
+                            #print(advance)
+                            '''
+                            index = blockers['objects'].index(b)
+                            if listOfBlockers.count(index) == 0:
+                                listOfBlockers.append(index)
+                            '''
+                            block = True
+
+
+                        '''
+                        elif ((center[0] - 10 - bs['position']['x'] > 0) and  
+                                (center[0] - 10 - bs['position']['x'] > ueNewX - bs['position']['x'])):
+                            break
+                        '''
+
                 if block:
                     blockage[m][n].append(0)
                 else:
                     blockage[m][n].append(1)
+                '''
                 if t == 0:
                     gamma[m][n][t] = (1 - Filter)*gamma[m][n][t] + Filter*blockageScore(blockers, listOfBlockers, [ueNewX, ueNewY])
                 else:
                     gamma[m][n][t] = blockageScore(blockers, listOfBlockers, [ueNewX, ueNewY])
+                '''
 
     if Plot:
         for i, bs in enumerate(baseStations):
@@ -88,7 +302,7 @@ def blockage(rate, scenario, baseStations, userEquipments, Filter=1, Plot = Fals
         plt.show()
 
 
-    return blockage, gamma
+    return [i['centroid'] for i in blockers['objects']], blockage#, gamma
 
 def blockageScore(blockers, blockerList, uePos, delta=None):
     if delta == 1 or delta == None:
