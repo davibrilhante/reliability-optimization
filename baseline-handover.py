@@ -36,6 +36,7 @@ class BaseStation(object):
         self.ssbIndex = 0
 
         self.numerology = components.numerology(bsDict['subcarrierSpacing']/1e3)
+        self.slotsPerSubframe = bsDict['subcarrierSpacing']/(15*1e3)
 
 
     def burstSet(self, burstDuration, burstPeriod, rachPeriod):
@@ -125,6 +126,7 @@ class MobileUser(object):
         self.Vx = ueDict['speed']['x']
         self.Vy = ueDict['speed']['y']
         self.delay = ueDict['delay']
+        self.capacity = ueDict['capacity']
         self.channel = scenario.channel
         self.env = scenario.env
         self.packetArrivals = ueDict['packets']
@@ -154,7 +156,7 @@ class MobileUser(object):
         self.n310 = 10 #default is 160 (one per millisecond)?
         self.t310 = 100 #milliseconds #default is 1000?
         self.n311 = 10 #default is 40 (one per millisecond)? 
-        self.sync = False
+        self.sync = False # Flag if the user is out of sync
 
         self.HOHysteresis = 1 #dB from 0 to 30
         self.HOOffset = 3 #dB
@@ -172,6 +174,7 @@ class MobileUser(object):
         self.plotRecvRSRP = [[] for i in self.listBS.keys()]
 
         self.reassociationFlag = False
+        self.mobilityModel = None
 
         self.kpi = {
                 'partDelay' : 0,
@@ -181,40 +184,60 @@ class MobileUser(object):
                 'reassociation' : 0,
                 'throughput' : [],
                 'deliveryRate' : 0,
-                'delay' : []
+                'delay' : [],
+                'association' : []
                 }
 
         self.blockage = {}
 
     # Launches the initial service (process)
-    def initializeServices(self):
+    def initializeServices(self, mobilityModel = None):
         self.env.process(self.measurementEvent())
         self.env.process(self.sendingPackets())
 
+        if callable(mobilityModel):
+            self.setMobilityModel(mobilityModel)
+
     # Configs the TTT, seting a time different from default value
-    def configTTT(self,time):
+    def configTTT(self, time : int):
         self.timeToTrigger = time
 
-    '''
-    # We dont need it anymore
-    def configHandoverEvent(self,event):
-        self.handoverEvent = event
-    '''
+    # Sets a mobility model to the UE
+    def setMobilityModel(self, newModel):
+        try:
+            callable(newModel)
+            self.mobilityModel = newModel
+            self.env.process(self.userMobility())
+        except Exception as e:
+            print(e)
+            print('Not a callable function past')
+
+    # Once the mobility model is set, at every time slot the UE position will
+    # be updated by this method
+    def userMobility(self):
+        while True:
+            yield self.env.timeout(1) #updates at the minimal time cell
+            newx, newy = self.mobilityModel(self)
+            self.x += newx
+            self.y += newy
+
 
 
     ### This method updates the list of BS and their RSRP
     def updateListBS(self):
-        timePast = self.env.now
-        xnow = self.x + (self.Vx/3.6)*timePast*1e-3 # time is represented in milliseconds
-        ynow = self.y + (self.Vy/3.6)*timePast*1e-3 
+        #timePast = self.env.now
+        #xnow = self.x + (self.Vx/3.6)*timePast*1e-3 # time is represented in milliseconds
+        #ynow = self.y + (self.Vy/3.6)*timePast*1e-3 
 
         for uuid, bs in self.listBS.items():
             ##### NEED TO INCLUDE BLOCKAGE!!!
-            distance = np.hypot(xnow - bs.x, ynow - bs.y)
+            #distance = np.hypot(xnow - bs.x, ynow - bs.y)
+            distance = np.hypot(self.x - bs.x, self.y - bs.y)
+
             wavelength = 3e8/bs.frequency
             ### There are 2 reference signal at each OFDM symbol, and 4 OFDM
             ### symbols in a slot carrying reference signals
-            referencesignals = (bs.resourceBlocks*2)*4
+            referencesignals = bs.slotsPerSubframe*(bs.resourceBlocks*2)*4
             
             #NLOS condition
             if self.blockage[uuid][self.env.now] == 1:
@@ -240,6 +263,8 @@ class MobileUser(object):
     def measurementEvent(self):
         while True:
             self.updateListBS()
+            # Check if the UE is in sync with the BS
+            self.env.process(self.signalQualityCheck())
             self.measurementCheck()
             yield self.env.timeout(self.timeToMeasure)
 
@@ -253,8 +278,12 @@ class MobileUser(object):
         ### FIRST TIME USER ASSOCIATON
         if self.servingBS == None and self.listedRSRP[maxRSRP] > self.sensibility:
             self.servingBS = maxRSRP
+            self.kpi['association'].append(list(self.listBS.keys()).index(self.servingBS))
             self.sync = True
 
+
+        ## User lost connection to its serving BS and needs to get reassociated
+        ## with another base station. It will raise the flag self.reassociationFlag
         elif self.servingBS == None and self.lastBS != None and self.listedRSRP[self.lastBS] == float('-inf'):
             if not self.reassociationFlag:
                 self.kpi['reassociation'] += 1
@@ -263,8 +292,8 @@ class MobileUser(object):
 
 
         elif self.servingBS != None:
-            #Check if the UE is sync with the BS
-            self.env.process(self.signalQualityCheck())
+            # Check if the UE is in sync with the BS
+            #self.env.process(self.signalQualityCheck())
 
             snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
             #print(self.env.now, maxRSRP, self.listedRSRP[maxRSRP], self.servingBS, self.listedRSRP[self.servingBS], snr)
@@ -281,18 +310,24 @@ class MobileUser(object):
                     #First time A3 condition is satisfied
                     self.triggerTime = self.env.now
                     #self.sendMeasurementReport(targetBS) 
-
                     #print('A3 CONDITION SATISFIED', targetBS, self.listedRSRP[targetBS])
 
                 else:
                     # It is not the first time A3 codition is satified by maxRSRP BS 
                     if self.sync:
-                        #Handover to maxRSRP BS
+                        # Check if the TTT is over and if it is so 
+                        # proceed with the handover to maxRSRP BS
                         self.sendMeasurementReport(targetBS) 
 
 
                     ### It is a mess and needs repair!!!
-                    if not self.sync or self.listedRSRP[self.servingBS] < self.qualityOut:
+                    #if not self.sync or self.listedRSRP[self.servingBS] < self.qualityOut:
+
+                    # If the UE is out sync or the serving BS RSRP is under 
+                    # the minimal reception threshold, then the UE is not
+                    # associated with any BS, the handover fails and the UE 
+                    # needs to be reassociated
+                    if not self.sync or self.listedRSRP[self.servingBS] < self.sensibility:
                         #Handover failure
                         #print('HANDOVER FAILURE')
                         self.lastBS = self.servingBS
@@ -323,25 +358,42 @@ class MobileUser(object):
 
 
     # Testing whether the handover did not fail due to be late
+    # The UE sync with the serving BS will be tested
     def signalQualityCheck(self):
         if self.servingBS != None:
             #print(self.env.now, self.servingBS,self.listedRSRP[self.servingBS])
             if self.listedRSRP[self.servingBS] < self.qualityOut and self.qualityOutCounter == 0:
                 downcounter = self.t310
                 while downcounter > 0:
-                    self.qualityOutCounter += 1
 
                     if self.qualityOutCounter >= self.n310:
-                        #Start out of sync counter
+                        # Start out of sync counter
                         downcounter -= 1
                         yield self.env.timeout(1)
 
+                    '''
+                    elif self.listedRSRP[self.servingBS] < self.qualityOut:
+                        self.qualityOutCounter += 1
+                        yield self.env.timeout(1) ### maybe it should be time to meas instead ???
+                        ### Call updatelistbs ???
+
+                    ### It was only a channel fluctation, and servingBS RSRP > qualityOut ???
+                    else:
+                        break
+                    '''
+
+
+                    # The channel is better now and the signal to serving BS
+                    # got greater or equal the "quality in" param
                     if self.listedRSRP[self.servingBS] >= self.qualityIn:
                         self.qualityInCounter += 1
 
+                        # The signal power is abover quality in for more than
+                        # n311 samples and t310 has not already expired
                         if self.qualityInCounter >= self.n311:
                             #Stop out of sync counter 
                             self.qualityOutCounter = 0
+                            self.qualityInCounter = 0
                             downcounter = self.t310
                             break
 
@@ -351,50 +403,59 @@ class MobileUser(object):
                             downcounter -= 1
                             yield self.env.timeout(1)
 
+                # T310 expired, the UE is out of sync with the serving BS
                 if downcounter == 0:
-                    #out of sync!
+                    # out of sync!
                     self.sync = False
 
+                    # Need to reassociate with the network
                     self.lastBS = self.servingBS
                     self.reassociationFlag = False
-                    #Need to reassociate with the network
                     self.servingBS = None
-                    #print('USER OUT OF SYNC')
-                    
-                    #yield self.env.timeout(1)
-
-                    #print('TRIGGERING NEW ASSOCIATION')
-                    #self.measurementCheck()
 
                 self.qualityOutCounter = 0
                 self.qualityInCounter = 0
 
+        # The user is already out of sync!
         else:
             self.sync = False
 
 
-    #  
+    # Send the measurement report to the BS
+    # Actually this method is doing all the handover procedure at once
+    # To be more realistic it would need to send messages to the serving and
+    # target BS, but it is not yet implemented
     def sendMeasurementReport(self, targetBS):
         if (self.env.now >= self.triggerTime + self.timeToTrigger) and self.measOccurring:
+
             #Check if it is not a reassociation
             if self.listedRSRP[self.servingBS] != None:
+
                 # Check if it is a pingpong, just for kpi assessment
                 if self.lastBS == targetBS:
                     self.kpi['pingpong'] += 1
 
-                # Does the handover, simple as that!
+                # Does the handover, as simple as that!
                 self.lastBS = self.servingBS
                 self.servingBS = targetBS
+                self.kpi['association'].append(list(self.listBS.keys()).index(self.servingBS))
                 self.kpi['handover'] += 1
 
+
+    # This method schedules the packets transmission
     def sendingPackets(self):
         for t in self.packetArrivals:
             yield self.env.timeout(t - self.env.now)
+
+            # The packet will be sent if and only if the UE is in sync with the
+            # serving BS and, of course, if it is associated whatsoever
             if self.sync and self.servingBS != None:
                 #snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
                 snr = max(0, self.listedRSRP[self.servingBS] - self.channel['noisePower'])
                 temp = self.snrThreshold
                 timer = 0 
+
+                # There is a 10 milliseconds tolerance to send a packet
                 while timer < 10:
                     if snr > self.snrThreshold or snr > temp:
                         self.kpi['deliveryRate'] += 1
@@ -411,10 +472,13 @@ class MobileUser(object):
                         timer += 1
 
 
+    # This method processes the LOS info from the instance
     def addLosInfo(self, los : list, n : int) -> list:
         for m,bs in enumerate(self.listBS):
             self.blockage[bs] = los[m][n]
 
+
+    # This method plots the UE KPIs
     def plot(self, plotType, subplot=True):
         plt.figure()
 
@@ -569,24 +633,19 @@ class MobileUser(object):
 
                         
 
+    # This method prints the kpi dict 
     def printKPI(self):
         self.kpi['uuid'] = self.uuid
         self.kpi['partDelay'] /= self.nPackets
-        self.kpi['throughput'] = np.mean(self.kpi['throughput'])
+        #self.kpi['throughput'] = np.mean(self.kpi['throughput'])
         self.kpi['deliveryRate'] /= self.nPackets
-        self.kpi['delay'] = np.mean(self.kpi['delay'])
+        #self.kpi['delay'] = np.mean(self.kpi['delay'])
+
+        if self.kpi['handover'] > 0:
+            self.kpi['pingpong'] /= self.kpi['handover']
+            self.kpi['handoverFail'] /= self.kpi['handover']
 
         print(json.dumps(self.kpi, indent=4))        
-        '''
-        print(self.uuid)
-        print(self.kpi['partDelay']/self.nPackets)
-        print(self.kpi['handover'])
-        print(self.kpi['pingpong'])
-        print(self.kpi['handoverFail'])
-        print(np.mean(self.kpi['throughput']))
-        print(self.kpi['deliveryRate']/self.nPackets)
-        print(np.mean(self.kpi['delay']))
-        '''
 
 
 
@@ -611,6 +670,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-i','--inputFile', help='Instance json input file')
 parser.add_argument('-p','--plot', action='store_true', help='xxx')
 args = parser.parse_args()
+
+
+def straightRoute(device : MobileUser):
+    ### assumes the speed in km/h and the time in milliseconds
+    x = (device.Vx/3.6)*1e-3
+    y = (device.Vy/3.6)*1e-3
+    return x, y
 
 
 
@@ -656,7 +722,7 @@ if __name__ == '__main__':
     ### Creating a list of nodes
     for n, i in enumerate(nodes):
         mobiles[i['uuid']] = MobileUser(i, sim)
-        mobiles[i['uuid']].initializeServices()
+        mobiles[i['uuid']].initializeServices(straightRoute)
         mobiles[i['uuid']].addLosInfo(LOS, n)
 
 
