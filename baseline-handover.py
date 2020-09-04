@@ -135,7 +135,7 @@ class MobileUser(object):
         self.snrThreshold = ueDict['threshold']
         self.uuid = ueDict['uuid']
         self.servingBS = None
-        self.lastBS = None
+        self.lastBS = []
 
         # This is a dictionary of all BS in the scenario
         self.listBS = scenario.baseStations
@@ -183,6 +183,7 @@ class MobileUser(object):
                 'pingpong' : 0,
                 'reassociation' : 0,
                 'throughput' : [],
+                'capacity' : [],
                 'deliveryRate' : 0,
                 'delay' : [],
                 'association' : []
@@ -278,13 +279,13 @@ class MobileUser(object):
         ### FIRST TIME USER ASSOCIATON
         if self.servingBS == None and self.listedRSRP[maxRSRP] > self.sensibility:
             self.servingBS = maxRSRP
-            self.kpi['association'].append(list(self.listBS.keys()).index(self.servingBS))
+            self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS),0])
             self.sync = True
 
 
         ## User lost connection to its serving BS and needs to get reassociated
         ## with another base station. It will raise the flag self.reassociationFlag
-        elif self.servingBS == None and self.lastBS != None and self.listedRSRP[self.lastBS] == float('-inf'):
+        elif self.servingBS == None and self.lastBS != []  and self.listedRSRP[self.lastBS[-1]] == float('-inf'):
             if not self.reassociationFlag:
                 self.kpi['reassociation'] += 1
                 #print(self.env.now)
@@ -297,8 +298,8 @@ class MobileUser(object):
 
             snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
             #print(self.env.now, maxRSRP, self.listedRSRP[maxRSRP], self.servingBS, self.listedRSRP[self.servingBS], snr)
-            #rate = self.listBS[self.servingBS].bandwidth*np.log2(1 + snr)
-            #self.kpi['throughput'].append(rate)
+            rate = self.listBS[self.servingBS].bandwidth*np.log2(1 + snr)
+            self.kpi['capacity'].append(rate)
 
             # This is the condition of an A3 event, triggering a RSRP measurement
             if self.listedRSRP[maxRSRP] - self.HOHysteresis > self.listedRSRP[self.servingBS] + self.HOOffset:
@@ -330,7 +331,7 @@ class MobileUser(object):
                     if not self.sync or self.listedRSRP[self.servingBS] < self.sensibility:
                         #Handover failure
                         #print('HANDOVER FAILURE')
-                        self.lastBS = self.servingBS
+                        self.lastBS.append(self.servingBS)
                         self.servingBS = None
                         self.reassociationFlag = False
                         if self.measOccurring:
@@ -409,7 +410,7 @@ class MobileUser(object):
                     self.sync = False
 
                     # Need to reassociate with the network
-                    self.lastBS = self.servingBS
+                    self.lastBS.append(self.servingBS)
                     self.reassociationFlag = False
                     self.servingBS = None
 
@@ -432,13 +433,13 @@ class MobileUser(object):
             if self.listedRSRP[self.servingBS] != None:
 
                 # Check if it is a pingpong, just for kpi assessment
-                if self.lastBS == targetBS:
+                if self.lastBS.count(targetBS)>0:
                     self.kpi['pingpong'] += 1
 
                 # Does the handover, as simple as that!
-                self.lastBS = self.servingBS
+                self.lastBS.append(self.servingBS)
                 self.servingBS = targetBS
-                self.kpi['association'].append(list(self.listBS.keys()).index(self.servingBS))
+                self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS), self.env.now])
                 self.kpi['handover'] += 1
 
 

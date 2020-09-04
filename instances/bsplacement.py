@@ -11,7 +11,7 @@ height = 1200
 
 bs_radius = 150
 
-def hexagonalbsplacement(width:int, height:int,bs_radius:float, route=None, plot=False):
+def hexagonalbsplacement(width:int, height:int,bs_radius:float, route=None, plot=False) -> list:
     hex_height = np.sqrt(bs_radius**2 - (bs_radius**2)/4)
 
     bs_rows = int(height/hex_height) - 1
@@ -49,6 +49,7 @@ def hexagonalbsplacement(width:int, height:int,bs_radius:float, route=None, plot
 
             if plot:
                 plt.scatter(center_x, center_y)
+                plt.text(center_x+10, center_y+10, str(len(bs_centers)-1))
 
                 i, j = polyg.exterior.xy
                 plt.plot(i, j)
