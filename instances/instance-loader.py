@@ -125,24 +125,28 @@ with open(outname, 'w') as outfile:
 
 outfile.close()
 
-data2 = {}
 '''
+data2 = {}
 if args.blockage2:
     data['blockage'], data['gamma'] = blockage2(density, data['scenario'], data['baseStation'], data['userEquipment'])
-else:
+
+elif density > 0:
     #data['blockage'], data['gamma'] = blockage(density, data['scenario'], data['baseStation'], data['userEquipment'])
     data['blockers'], data['blockage'] = blockage(density, data['scenario'], data['baseStation'], data['userEquipment'])
-'''
-for i in range(data['scenario']['simTime']):
-    for j in range(n_BS):
-        if ((i < data['scenario']['simTime']/4)
-                or (i > data['scenario']['simTime']/2 and i <=  3*data['scenario']['simTime']/4)):
-            data['blockage'][j][0][i] = 0
-        else:
-            data['blockage'][j][0][i] = 1
 
-f.close()
-'''
+else:
+    data['blockage'] = []
+    for j in range(n_BS):
+        data['blockage'].append([])
+        data['blockage'][j].append([])
+        for i in range(data['scenario']['simTime']):
+                data['blockage'][j][0].append(1)
+            #if ((i < data['scenario']['simTime']/4)
+            #        or (i > data['scenario']['simTime']/2 and i <=  3*data['scenario']['simTime']/4)):
+            #else:
+            #    data['blockage'][j][0][i] = 1
+
+#f.close()
 
 outname = str(n_BS)+'-'+str(n_UE)+'-'+str(density)+'-'+str(args.vx)+'-'+str(args.vy)+'-'+str(args.seed) #'mobility.json'
 with open(outname, 'w') as outfile:
