@@ -13,16 +13,16 @@ from matplotlib import pyplot as plt
 #### 5G NR ENV
 import simutime
 import components
-import definitions
+import definitions as defs
 import simpy as sp
 
 
 class BaseStation(object):
-    def __init__(self, bsDict, env):
+    def __init__(self, bsDict, scenario):
         self.x = bsDict['position']['x']
         self.y = bsDict['position']['y']
         self.frequency = bsDict['frequency']
-        self.env = env
+        self.env = scenario.env
 
         self.txPower = bsDict['txPower']
         self.antennaGain = 10 #### STUB!!!
@@ -34,6 +34,11 @@ class BaseStation(object):
         self.inRangeUsers = []
         self.frameIndex = 0
         self.ssbIndex = 0
+
+        self.onSSB = False
+        self.nextSSB = 0
+        self.onRach = False
+        self.nextRach = 0
 
         self.numerology = components.numerology(bsDict['subcarrierSpacing']/1e3)
         self.slotsPerSubframe = bsDict['subcarrierSpacing']/(15*1e3)
@@ -54,22 +59,35 @@ class BaseStation(object):
         while True:
             self.availableSlots = self.numerology['ssblocks']
             if (self.frameIndex % (rachPeriod/defs.FRAME_DURATION) != 0) and (self.frameIndex != 1):
-                print('A new burst set is starting at %d and it is the %d ss burst in %d frame' % 
-                        (self.env.now, self.ssbIndex, self.frameIndex))
+                #print('A new burst set is starting at %d and it is the %d ss burst in %d frame' % 
+                #        (self.env.now, self.ssbIndex, self.frameIndex))
+
+                ### Flagging that there is an SSB happening
+                self.onSSB = True
                 yield self.env.timeout(burstDuration)
-                print('The burst set has finished at %d' % self.env.now)
+                #print('The burst set has finished at %d' % self.env.now)
                 #self.calcNetworkCapacity()
+
+                ### Flagging that the SSB is finished
+                self.onSSB = False
+
+                if ((self.frameIndex + (burstPeriod/defs.FRAME_DURATION))/
+                        (rachPeriod/defs.FRAME_DURATION) != 0):
+                    self.nextSSB = self.env.now + (burstPeriod - burstDuration)
+                else:
+                    self.nextSSB = self.env.now + (rachPeriod - burstDuration)
+
                 yield self.env.timeout(burstPeriod - burstDuration)
+
             else:
                 yield self.env.timeout(burstPeriod)
 
     def updateFrame(self):
         #self.frameIndex+=1
         while True:
-            print('Frame:',self.frameIndex,'in',self.env.now)
+            #print('Frame:',self.frameIndex,'in',self.env.now)
             self.frameIndex+=1
             yield self.env.timeout(defs.FRAME_DURATION)
-            self.calcNetworkCapacity()
             if self.frameIndex % (defs.BURST_PERIOD/defs.FRAME_DURATION) == 0:
                 self.ssbIndex+=1
 
@@ -84,12 +102,21 @@ class BaseStation(object):
         while True:
             ### Grants a SS Burst at the first frame but avoids a defs.RACH at the first frame
             if self.frameIndex==1:
+                self.nextRach = self.env.now + rachPeriod
                 yield self.env.timeout(rachPeriod)
             else:
-                print('A new rach opportunity is starting at %d and it is the %d ss burst in %d frame' 
-                        % (self.env.now, self.ssbIndex, self.frameIndex))
+                #print('A new rach opportunity is starting at %d and it is the %d ss burst in %d frame' 
+                #        % (self.env.now, self.ssbIndex, self.frameIndex))
+
+                ## Flagging a new RACH opportunity
+                self.onRach = True
                 yield self.env.timeout(rachDuration)
-                print('The rach opportunity  has finished at %d' % self.env.now)
+                #print('The rach opportunity  has finished at %d' % self.env.now)
+
+                ### Flagging the end of a RACH opportunity
+                self.onRach = False
+                self.nextRach = self.env.now + (rachPeriod - rachDuration)
+
                 '''
                 #GAMBIARRA
                 temp = self.ALG
@@ -108,14 +135,14 @@ class BaseStation(object):
         '''
         Returns the distance from user to base station
         '''
-        return np.hypot(user.x, user.y)
+        return np.hypot(user.x - self.x, user.y - self.y)
 
     def calcUserAngle(self, user):
         '''
         Returns the the angle between user and cartesian plane
         defined with base station at the center
         '''
-        return np.rad2deg(np.arctan2(user.y, user.x))
+        return np.rad2deg(np.arctan2(user.y - self.y, user.x - self.x))
 
 
 
@@ -164,6 +191,7 @@ class MobileUser(object):
 
         self.triggerTime = 0
         self.measOccurring = False
+        self.lastMeasurement = 0
         #self.handoverEvent = 'A3_EVENT'
 
         self.plotAssociation = []
@@ -234,6 +262,7 @@ class MobileUser(object):
             ##### NEED TO INCLUDE BLOCKAGE!!!
             #distance = np.hypot(xnow - bs.x, ynow - bs.y)
             distance = np.hypot(self.x - bs.x, self.y - bs.y)
+            #distance = bs.calcUserDist(self)
 
             wavelength = 3e8/bs.frequency
             ### There are 2 reference signal at each OFDM symbol, and 4 OFDM
@@ -270,6 +299,26 @@ class MobileUser(object):
             yield self.env.timeout(self.timeToMeasure)
 
 
+    def firstAssociation(self, baseStation):
+        ### FIRST TIME USER ASSOCIATON
+        #if self.servingBS == None and self.listedRSRP[maxRSRP] > self.sensibility:
+        self.servingBS = baseStation
+        self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS),0])
+        
+        # yields untill the downlink and uplink sync is completed
+        yield self.env.timeout(
+                self.listBS[self.servingBS].nextRach + defs.BURST_DURATION  - self.env.now
+                )
+
+        # Now, the UE is in sync with the serving BS
+        self.sync = True
+
+    def reassociation(self, baseStation):
+        self.kpi['reassociation'] += 1
+        self.reassociationFlag = True
+        self.env.process(firstAssocation(baseStation))
+
+
     # Checks the handover event condition
     def measurementCheck(self):
         maxRSRP = max(self.listedRSRP.items(), key=operator.itemgetter(1))[0]
@@ -278,18 +327,12 @@ class MobileUser(object):
 
         ### FIRST TIME USER ASSOCIATON
         if self.servingBS == None and self.listedRSRP[maxRSRP] > self.sensibility:
-            self.servingBS = maxRSRP
-            self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS),0])
-            self.sync = True
+            self.env.process(self.firstAssociation(maxRSRP))
 
 
-        ## User lost connection to its serving BS and needs to get reassociated
-        ## with another base station. It will raise the flag self.reassociationFlag
-        elif self.servingBS == None and self.lastBS != []  and self.listedRSRP[self.lastBS[-1]] == float('-inf'):
-            if not self.reassociationFlag:
-                self.kpi['reassociation'] += 1
-                #print(self.env.now)
-                self.reassociationFlag = True
+        # User became out of sync or a handover failed due to loss of sync
+        elif self.servingBS == None and len(self.lastBS)>0 and not self.sync:
+            self.reassociation(maxRSRP)
 
 
         elif self.servingBS != None:
@@ -301,56 +344,13 @@ class MobileUser(object):
             rate = self.listBS[self.servingBS].bandwidth*np.log2(1 + snr)
             self.kpi['capacity'].append(rate)
 
-            # This is the condition of an A3 event, triggering a RSRP measurement
-            if self.listedRSRP[maxRSRP] - self.HOHysteresis > self.listedRSRP[self.servingBS] + self.HOOffset:
-
-                targetBS = max(self.listedRSRP.items(), key=operator.itemgetter(1))[0]
-                self.measOccurring = True
-
-                if self.triggerTime == 0:
-                    #First time A3 condition is satisfied
-                    self.triggerTime = self.env.now
-                    #self.sendMeasurementReport(targetBS) 
-                    #print('A3 CONDITION SATISFIED', targetBS, self.listedRSRP[targetBS])
-
-                else:
-                    # It is not the first time A3 codition is satified by maxRSRP BS 
-                    if self.sync:
-                        # Check if the TTT is over and if it is so 
-                        # proceed with the handover to maxRSRP BS
-                        self.sendMeasurementReport(targetBS) 
+            # This is the condition trigger a handover
+            if maxRSRP != self.servingBS:
+                self.env.process(self.handover(maxRSRP))
 
 
-                    ### It is a mess and needs repair!!!
-                    #if not self.sync or self.listedRSRP[self.servingBS] < self.qualityOut:
-
-                    # If the UE is out sync or the serving BS RSRP is under 
-                    # the minimal reception threshold, then the UE is not
-                    # associated with any BS, the handover fails and the UE 
-                    # needs to be reassociated
-                    if not self.sync or self.listedRSRP[self.servingBS] < self.sensibility:
-                        #Handover failure
-                        #print('HANDOVER FAILURE')
-                        self.lastBS.append(self.servingBS)
-                        self.servingBS = None
-                        self.reassociationFlag = False
-                        if self.measOccurring:
-                            self.kpi['handoverFail'] += 1
-                            self.kpi['handover'] += 1
-                            self.measOcurring = False
-
-            # The A3 event condition was not maintained, so the measurement should stop 
-            elif self.listedRSRP[maxRSRP] - self.HOHysteresis < self.listedRSRP[self.servingBS] + self.HOOffset:
-                self.measOccurring = False
-                if self.triggerTime != 0:
-                    self.triggerTime = 0
-
-        '''
-        if self.listedRSRP[self.servingBS] < self.qualityOut:
-            print('CONNECTION WITH SERVING BS LOST')
-            self.servingBS = None
-        '''
         self.plotAssociation.append(self.servingBS)
+
         if self.servingBS == None:
             self.plotMaxRSRP.append(float('-inf'))
         else:
@@ -389,7 +389,7 @@ class MobileUser(object):
                     if self.listedRSRP[self.servingBS] >= self.qualityIn:
                         self.qualityInCounter += 1
 
-                        # The signal power is abover quality in for more than
+                        # The signal power is above quality in for more than
                         # n311 samples and t310 has not already expired
                         if self.qualityInCounter >= self.n311:
                             #Stop out of sync counter 
@@ -422,6 +422,43 @@ class MobileUser(object):
             self.sync = False
 
 
+
+    def handover(self, targetBS):
+        counterTTT = 0
+
+        # First, check if another measurement is not in progress
+        if not self.measOccurring:
+            #targetBS = max(self.listedRSRP.items(), key=operator.itemgetter(1))[0]
+
+            # If it is not, check whether it is an A3 event or not
+            if self.listedRSRP[targetBS] - self.HOHysteresis > self.listedRSRP[self.servingBS] + self.HOOffset:
+                # Given that it is an A3 event, triggers the measurement
+                self.measOccurring = True
+                self.triggerTime = self.env.now
+
+
+                while counterTTT < self.timeToTrigger:
+                    yield self.env.timeout(1)
+                    counterTTT += 1
+
+                    # The A3 condition still valid? If not, stop the timer
+                    if self.listedRSRP[targetBS] - self.HOHysteresis <= self.listedRSRP[self.servingBS] + self.HOOffset:
+                        break
+
+
+                if counterTTT == self.timeToTrigger:
+                    self.kpi['handover']+=1
+
+                    if self.sync:
+                        self.sendMeasurementReport(targetBS)
+
+                    else:
+                        self.handoverFailure()
+
+                    self.measOccurring = False
+                    self.triggerTime = 0
+
+
     # Send the measurement report to the BS
     # Actually this method is doing all the handover procedure at once
     # To be more realistic it would need to send messages to the serving and
@@ -436,11 +473,21 @@ class MobileUser(object):
                 if self.lastBS.count(targetBS)>0:
                     self.kpi['pingpong'] += 1
 
-                # Does the handover, as simple as that!
-                self.lastBS.append(self.servingBS)
-                self.servingBS = targetBS
-                self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS), self.env.now])
-                self.kpi['handover'] += 1
+                # Switch to the new BS
+                self.switchToNewBS(targetBS)
+
+    def handoverFailure(self):
+        self.lastBS.append(self.servingBS)
+        self.servingBS = None
+        self.reassociationFlag = False
+        self.kpi['handoverFail'] += 1
+
+
+    def switchToNewBS(self, targetBS):
+        self.lastBS.append(self.servingBS)
+        self.servingBS = targetBS
+        self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS), self.env.now])
+        #Needs to implement the gap between the user is in total sync with new BS
 
 
     # This method schedules the packets transmission
@@ -670,6 +717,7 @@ class Simulator(object):
 parser = argparse.ArgumentParser()
 parser.add_argument('-i','--inputFile', help='Instance json input file')
 parser.add_argument('-p','--plot', action='store_true', help='xxx')
+parser.add_argument('--ttt', type=int, default=640)
 args = parser.parse_args()
 
 
@@ -716,6 +764,7 @@ if __name__ == '__main__':
     ### Creating list of Base Stations
     for i in network:
         baseStations[i['uuid']] = BaseStation(i, sim)
+        baseStations[i['uuid']].initializeServices()
 
     sim.addBaseStations(baseStations)
 
@@ -724,6 +773,7 @@ if __name__ == '__main__':
     for n, i in enumerate(nodes):
         mobiles[i['uuid']] = MobileUser(i, sim)
         mobiles[i['uuid']].initializeServices(straightRoute)
+        mobiles[i['uuid']].configTTT(args.ttt)
         mobiles[i['uuid']].addLosInfo(LOS, n)
 
 
