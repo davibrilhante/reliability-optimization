@@ -6,8 +6,8 @@ from shapely.geometry import LineString
 
 
 
-width = 1200
-height = 1200
+width = 1350
+height = 1350
 
 bs_radius = 150
 
@@ -49,14 +49,16 @@ def hexagonalbsplacement(width:int, height:int,bs_radius:float, route=None, plot
 
             if plot:
                 plt.scatter(center_x, center_y)
-                plt.text(center_x+10, center_y+10, str(len(bs_centers)-1))
+                plt.text(center_x-50, center_y-50, str(len(bs_centers)-1))
 
                 i, j = polyg.exterior.xy
                 plt.plot(i, j)
 
     if plot:
-        plt.xticks(np.linspace(0,width,width/bs_radius+1))
-        plt.yticks(np.linspace(0,height,height/bs_radius+1))
+        plt.xticks(np.linspace(0,1200,1200/bs_radius+1))
+        plt.yticks(np.linspace(0,1200,1200/bs_radius+1))
+        plt.xlim(0,1200)
+        plt.ylim(0,1200)
         plt.grid()
         plt.show()
 
