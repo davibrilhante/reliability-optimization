@@ -148,8 +148,8 @@ else:
 
 #f.close()
 
-#outname = args.outname #str(density)+'-'+str(args.vx)-'-'+str(args.vy)+'-'+str(args.seed) #'mobility.json'
+#outname = str(n_BS)+'-'+str(n_UE)+'-'+str(density)+'-'+str(args.vx)+'-'+str(args.vy)+'-'+str(args.seed) #'mobility.json'
 #with open(outname, 'w') as outfile:
-    #json.dump(data, outfile, indent=4)
+#    json.dump(data, outfile, indent=4)
 y = json.dumps(data, indent=4)
 print(y)
