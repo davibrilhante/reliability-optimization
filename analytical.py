@@ -227,11 +227,12 @@ for s in ueSpeed:
         for x in range(execs):
             #filename = 'out/'+s+'/'+b+'/'+str(x)
             filename = 'instances/'+s+'/'+b+'/'+str(x)
-            with open(filename, 'r') as jsonfile:
                 try:
-                    data = load(jsonfile)
+                    with open(filename, 'r') as jsonfile:
+                        data = load(jsonfile)
                 except Exception as e:
                     print(e)
+                    continue
 
             #tau = 640
             numberBS = len(data['baseStation'])
