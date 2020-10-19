@@ -58,40 +58,39 @@ def avgAntiBlockageDuration(blockageInfo : list):
     return np.nanmean(result), np.std(result)
 
 
-def avgSightArea(simulationTime : int, userEquip : dict, basestation: list, ttt : int):
+def avgSightArea(simulationTime : int, userEquip : dict, basestation: list, ttt : int, step = 1):
     result = []
+    time = 0
 
-    for bs in basestation:
-        time = 0
-        bsX = bs['position']['x']
-        bsY = bs['position']['y']
     
-        while time < simulationTime:
+    while time < simulationTime:
+        result.append([])
+        for bs in basestation:
+            bsX = bs['position']['x']
+            bsY = bs['position']['y']
+
             ueX = userEquip['position']['x'] + (userEquip['speed']['x']/3.6)*time*1e-3
             ueY = userEquip['position']['y'] + (userEquip['speed']['y']/3.6)*time*1e-3
             dist = np.hypot(bsX-ueX, bsY-ueY)
 
-            if dist <= 200:
+            #if dist <= 200:
                 #print(bs['uuid'])
 
-                finalX = ueX + (userEquip['speed']['x']/3.6)*ttt*1e-3
-                finalY = ueY + (userEquip['speed']['y']/3.6)*ttt*1e-3
+            finalX = ueX + (userEquip['speed']['x']/3.6)*ttt*1e-3
+            finalY = ueY + (userEquip['speed']['y']/3.6)*ttt*1e-3
 
-                sideB = np.hypot(ueX-finalX, ueY-finalY)
+            sideB = np.hypot(ueX-finalX, ueY-finalY)
 
-                sideC = np.hypot(bsX-finalX, bsY-finalY)
+            sideC = np.hypot(bsX-finalX, bsY-finalY)
 
-                halfPerimeter = (dist + sideB + sideC)/2
-                area = np.sqrt(
-                        halfPerimeter*(halfPerimeter - dist)*(halfPerimeter-sideB)*(halfPerimeter-sideC)
-                        )
-                
-                result.append(area)
-                break
+            halfPerimeter = (dist + sideB + sideC)/2
+            area = np.sqrt(
+                    halfPerimeter*(halfPerimeter - dist)*(halfPerimeter-sideB)*(halfPerimeter-sideC)
+                    )
+            
+            result[-1].append(area)
 
-            time += tau
-
-
+        time += step
 
     return result 
 
@@ -154,14 +153,14 @@ class MarkovChain(object):
                     dist = np.hypot(self.bspos[actual][0] - self.bspos[_next][0],
                             self.bspos[actual][1] - self.bspos[_next][1])
 
-                    if dist <= 500: 
-                        self.transitionMatrix[actual][_next] = handoverProbability(
-                                self.areas[actual], self.areas[_next],
-                                1, self.blockDuration, self.freeDuration,
-                                self.blockageDensity, self.timeToTrigger
-                                )
-                    else:
-                        self.transitionMatrix[actual][_next] = 0
+                    #if dist <= 500: 
+                    self.transitionMatrix[actual][_next] = handoverProbability(
+                            self.areas[actual], self.areas[_next],
+                            1, self.blockDuration, self.freeDuration,
+                            self.blockageDensity, self.timeToTrigger
+                            )
+                    #else:
+                    #    self.transitionMatrix[actual][_next] = 0
 
             self.transitionMatrix[actual][actual] = 1 - sum(self.transitionMatrix[actual])
 
@@ -250,18 +249,19 @@ for s in ueSpeed:
         print(mu, csi)
 
         for tau in TTT:
+            step = tau 
+            print("Calc Area!")
             parameterArea = avgSightArea(simulationTime, data['userEquipment'][0],
-                                data['baseStation'], tau)
+                                data['baseStation'], tau, step)
+            parameterArea = [area for i in data['baseStation']]
 
-            nStates = len(parameterArea)
+            nStates = len(data['baseStation'])
             chain = MarkovChain(nStates)
 
             chain.setHandoverParams(parameterArea, mu, csi, float(b), tau*1e-3, data['baseStation'])
             chain.populateMatrix()
             print(chain.transitionMatrix)
-            evaluation[str(tau)][s][b], std = chain.monteCarloSimulation(int(1e5), int(simulationTime/tau))
-
-
+            evaluation[str(tau)][s][b], std = chain.monteCarloSimulation(int(1e4), int(simulationTime/step))
 
             #print(parameterArea)
 
