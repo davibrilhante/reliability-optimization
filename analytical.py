@@ -270,3 +270,12 @@ for s in ueSpeed:
             #evaluation[str(tau)][s][b] = expectedHO
 
             print(tau, evaluation[str(tau)][s][b], std)
+
+
+
+for speed in ueSpeed:
+    for block in blockageDensity:
+        plt.plot(TTT, evaluation[:][speed][block])
+
+
+
