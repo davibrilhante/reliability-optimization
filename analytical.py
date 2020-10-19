@@ -4,11 +4,12 @@
 
 import numpy as np
 from matplotlib import pyplot as plt
-from json import load
+from json import load, dump
 from argparse import ArgumentParser
 
 #parser = ArgumentParser()
 #parser.add_argument('-i','--input')
+#parser.add_argument('-j','--json')
 
 #args = parser.parse_args()
 
@@ -213,8 +214,8 @@ class MarkovChain(object):
 
 
 TTT = [(2**i)*10 for i in range(3,10)]
-ueSpeed = ['22']#[str(7*i + 22) for i in range(3,10)]
-blockageDensity = ['0.001']#['{:.3f}'.format(0.001 + i*0.001) for i in range(10)]
+ueSpeed = [str(7*i + 22) for i in range(3,10)]
+blockageDensity = ['{:.3f}'.format(0.001 + i*0.001) for i in range(10)]
 execs = 30
 
 evaluation = {str(i) : {j : {k : [] for k in blockageDensity} for j in ueSpeed} for i in TTT}
@@ -271,11 +272,21 @@ for s in ueSpeed:
 
             print(tau, evaluation[str(tau)][s][b], std)
 
+outname = 'analytics.json'
+with open(outname,'w') as outfile:
+    dump(evaluation, outfile)
 
-
+'''
 for speed in ueSpeed:
     for block in blockageDensity:
-        plt.plot(TTT, evaluation[:][speed][block])
+        temp = []
+        for t in TTT:
+            temp.append(evaluation[str(t)][s][b])
+        plt.plot(TTT, temp)
 
-
-
+plt.xlabel("Time to Trigger")
+plt.ylabel("Expected number of Hand Over")
+plt.grid()
+plt.legend()
+plt.show()
+'''
