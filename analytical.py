@@ -250,8 +250,9 @@ for s in ueSpeed:
         print(mu, csi)
 
         for tau in TTT:
+            print(s,b,tau)
             step = tau 
-            print("Calc Area!")
+            #print("Calc Area!")
             parameterArea = avgSightArea(simulationTime, data['userEquipment'][0],
                                 data['baseStation'], tau, step)
             parameterArea = [area for i in data['baseStation']]
@@ -261,7 +262,7 @@ for s in ueSpeed:
 
             chain.setHandoverParams(parameterArea, mu, csi, float(b), tau*1e-3, data['baseStation'])
             chain.populateMatrix()
-            print(chain.transitionMatrix)
+            #print(chain.transitionMatrix)
             evaluation[str(tau)][s][b], std = chain.monteCarloSimulation(int(1e4), int(simulationTime/step))
 
             #print(parameterArea)
