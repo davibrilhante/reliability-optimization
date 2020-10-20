@@ -214,7 +214,7 @@ class MarkovChain(object):
 
 
 TTT = [(2**i)*10 for i in range(3,10)]
-ueSpeed = [str(7*i + 22) for i in range(3,10)]
+ueSpeed = ['22'] #[str(7*i + 22) for i in range(7)]
 blockageDensity = ['{:.3f}'.format(0.001 + i*0.001) for i in range(10)]
 execs = 30
 
@@ -226,7 +226,7 @@ for s in ueSpeed:
         tempCsi = []
         for x in range(execs):
             #filename = 'out/'+s+'/'+b+'/'+str(x)
-            filename = 'instances/'+s+'/'+b+'/'+str(x)
+            filename = 'instances/out/'+s+'/'+b+'/'+str(x)
             try:
                 with open(filename, 'r') as jsonfile:
                     data = load(jsonfile)
