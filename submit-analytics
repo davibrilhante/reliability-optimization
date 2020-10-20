@@ -1,0 +1,15 @@
+Universe = vanilla
+Executable = analytical2.py
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+
+Error = instances/err/$(process)
+Log = instances/log/$(process)
+
+
+
+Arguments = -s 22 -b 0.001
+transfer_input_files = instances/out/0.001/
+transfer_output_files = output-analytics/22-0.001
+transfer_output_remaps ="output-analytics/22-0.001 = /home/users/dbrilhante/Git/reliability-optimization/output-analytics/22-0.001"
+queue 1
