@@ -35,13 +35,31 @@ def calc_recv(base : dict, user : dict, channel : dict, los : bool, t=0) -> floa
 def calc_snr(base : dict, user : dict, channel : dict, los : bool, t=0) -> float:
     noise_power = channel['noisePower']
 
-    return calc_recv(base, user, channel, los, t) - noise_power
+    snr = calc_recv(base, user, channel, los, t) - noise_power
 
+    if snr >= 0:
+        return snr
+    else:
+        return 0
+
+
+def blockageScore(blockers, blockerList, uePos, delta=None):
+    if delta == 1 or delta == None:
+        delta = lambda x1, y1, x2, y2: 1/np.hypot(x1-x2, y1-y2)
+    elif delta == 2:
+        delta = lambda x1, y1, x2, y2: np.exp(-1*np.hypot(x1-x2, y1-y2))
+
+    gamma = 0
+    for i in blockerList:
+        gamma += delta(blockers['objects'][i]['polygon'].centroid.x, uePos[0],
+                blockers['objects'][i]['polygon'].centroid.y, uePos[1])
+    return gamma
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-i','--inputFile', help='Instance json input file')
 parser.add_argument('-p','--plot', action='store_true', help='Enables plot')
+parser.add_argument('-t','--timetotrigger', type=int, default=640, help='Time to trigger')
 parser.add_argument('-s','--save', action='store_true', help='Save statistics')
 
 args = parser.parse_args()
@@ -49,7 +67,8 @@ args = parser.parse_args()
 network = []
 nodes = []
 
-topdir = 'instances/out2/'
+#topdir = 'instances/out2/'
+topdir = 'instances/'
 ### Create base data
 with open(topdir+args.inputFile) as json_file:
     try:
@@ -60,13 +79,14 @@ with open(topdir+args.inputFile) as json_file:
     scenario = data['scenario']
     channel = data['channel']
     LOS = data['blockage']
-    gamma = data['gamma']
+    blockers = data['blockers']
+    #gamma = data['gamma']
     for p in data['baseStation']:
         network.append(p)
     for p in data['userEquipment']:
         nodes.append(p)
 
-scenario['simTime'] = min(12000, scenario['simTime'])
+#scenario['simTime'] = min(12000, scenario['simTime'])
 for ue in nodes:
     ue['nPackets'] = int(scenario['simTime']/500 - 1)
     ue['capacity'] = 750e6 #Bits per second
@@ -76,14 +96,18 @@ m_bs = len(network)
 
 
 SNR = []
+gamma = []
 
 ### -------- Beginning of the Preprocessing phase ----------
 #
 # SNR evaluation
 for m, bs in enumerate(network):
     SNR.append([])
+    gamma.append([])
     for n,ue in enumerate(nodes):
         SNR[m].append([])
+        gamma[m].append([])
+        listOfBlockers = []
         #Adding the time dependency
         for t in range(scenario['simTime']):
             if LOS[m][n][t] == 1:
@@ -91,11 +115,12 @@ for m, bs in enumerate(network):
             else:
                 los = False
             SNR[m][n].append(calc_snr(bs,ue,channel,los,t))
-            if gamma[m][n][t] == float('inf') or gamma[m][n][t] == float('nan'):
-                gamma[m][n][t] = 1.0
+            gamma[m][n].append(0)
+            #if gamma[m][n][t] == float('inf') or gamma[m][n][t] == float('nan'):
+            #    gamma[m][n][t] = 1.0
 
 # Creating Beta array (handover flag)
-tau = 640
+tau = args.timetotrigger
 offset = 3 
 beta = []
 for p in range(m_bs):
@@ -346,9 +371,12 @@ kpi = { 'partCap' : 0,
         'partDelay' : 0,
         'handover' : 0,
         'pingpong' : 0,
-        'throughput' : 0,
+        'throughput' : [],
+        'capacity':[],
         'deliveryRate' : 0,
-        'delay' : 0}
+        'delay' : [],
+        'association': []
+        }
 
 # Data collecteed per UE
 for n,ue in enumerate(nodes):
@@ -368,35 +396,43 @@ for n,ue in enumerate(nodes):
     kpi['partDelay'] = sum(time_delay_attended)/ue['nPackets']
 
     #Calculating number of handovers
-    associated = []
+    #associated = []
     for t in range(scenario['simTime']):
         for m in range(m_bs):
             if x[m][n][t] == 1:
-                if (len(associated) > 0 and associated[-1] != m) or len(associated)==0:
-                    associated.append(m)
-    print(len(associated))
-    kpi['handover'] = len(associated)
+                if (len(kpi['association']) > 0 and kpi['association'][-1][0] != m) or len(kpi['association'])==0:
+                    kpi['association'].append([m,t])
+    print(len(kpi['association']))
+    print(kpi['association'])
+    kpi['handover'] = len(kpi['association'])
                 
     #Calculating Ping Pong Rate
     num = 0
     for m in range(m_bs):
-        if associated.count(m)>1:
-            num+= associated.count(m)-1
-    rate = num/len(associated)
+        if kpi['association'].count(m)>1:
+            num+= kpi['association'].count(m)-1
+    rate = num/len(kpi['association'])
     print(rate)
     kpi['pingpong'] = rate
 
-    #Calculating Capacity achived/Throughput
-    throughput = []
+    #Calculating Throughput
+    #throughput = []
+    for t in ue['packets']:#range(scenario['simTime']):
+        for m in range(m_bs):
+            if x[m][n][t] == 1:
+                #throughput.append(12*network[m]['subcarrierSpacing']*R[m]*np.log2(1+SNR[m][n][t]))
+                kpi['throughput'].append(R[m]*np.log2(1+SNR[m][n][t]))
+    print(np.mean(kpi['throughput']))
+
+
+    #Calculating System Capacity
+    #capacity = []
     for t in range(scenario['simTime']):
         for m in range(m_bs):
             if x[m][n][t] == 1:
-                #print(t)
                 #throughput.append(12*network[m]['subcarrierSpacing']*R[m]*np.log2(1+SNR[m][n][t]))
-                throughput.append(R[m]*np.log2(1+SNR[m][n][t]))
-    print(np.mean(throughput))
-    kpi['throughput'] = np.mean(throughput)
-
+                kpi['capacity'].append(R[m]*np.log2(1+SNR[m][n][t]))
+    print(np.mean(kpi['capacity']))
 
     #Calculating Packets Succesfully Sent
     packetsSent = []
@@ -408,7 +444,7 @@ for n,ue in enumerate(nodes):
     kpi['deliveryRate'] = np.mean(packetsSent)
 
     #Average delay
-    delay = []
+    #delay = []
     for m in range(m_bs):
         #for k in ue['packets']:
         for p in range(ue['nPackets']):
@@ -417,10 +453,9 @@ for n,ue in enumerate(nodes):
             #print(k)
             for t in range(k, l):
                 if t < scenario['simTime'] and x[m][n][t] == 1:
-                    delay.append(t - k)
+                    kpi['delay'].append(t - k)
                     break
-    print(np.mean(delay))
-    kpi['delay'] = np.mean(delay)
+    print(np.mean(kpi['delay']))
     kpi['uuid'] = ue['uuid']
         
 if args.save:
