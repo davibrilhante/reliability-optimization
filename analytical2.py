@@ -78,6 +78,7 @@ def avgSightArea(simulationTime : int, userEquip : dict, basestation: list, ttt 
 
             #if dist <= 200:
                 #print(bs['uuid'])
+            '''
 
             finalX = ueX + (userEquip['speed']['x']/3.6)*ttt*1e-3
             finalY = ueY + (userEquip['speed']['y']/3.6)*ttt*1e-3
@@ -87,9 +88,20 @@ def avgSightArea(simulationTime : int, userEquip : dict, basestation: list, ttt 
             sideC = np.hypot(bsX-finalX, bsY-finalY)
 
             halfPerimeter = (dist + sideB + sideC)/2
-            area = np.sqrt(
-                    halfPerimeter*(halfPerimeter - dist)*(halfPerimeter-sideB)*(halfPerimeter-sideC)
-                    )
+
+            #      link budget - path loss (in LOS condition)
+            receivedPower = 40 - (61.4 + 20.0*np.log10(dist))
+            print(receivedPower)
+            if receivedPower > -90:
+                area = np.sqrt(
+                        halfPerimeter*(halfPerimeter - dist)*(halfPerimeter-sideB)*(halfPerimeter-sideC)
+                        )
+            else:
+                area = float('inf')
+            '''
+            #angle = np.arctan2(bsY-ueY,bsX-ueX)
+            area = dist*(userEquip['speed']['x']/3.6)#*np.cos(angle)))
+
             
             result[-1].append(area)
 
@@ -122,6 +134,7 @@ def handoverProbability(areaSBS, areaNBS, numberNeighbours, blockDuration,
 
     #probability *= (1 - blockDurationProb)*numberNeighbours*np.exp(expNBS) 
     #probability *= numberNeighbours*np.exp(-1*expNBS)*freeDurationProb 
+    print(blockDurationProb,oneOrMoreObstaclesProb,freeDurationProb,noObstacleProb)
 
     probability = blockDurationProb*oneOrMoreObstaclesProb
     probability *= freeDurationProb*noObstacleProb
@@ -196,8 +209,8 @@ class MarkovChain(object):
         self.populateMatrix(0)
         wheight = self.transitionMatrix[state]
         for n in range(1,steps):
-            #print(self.areas[n])
-            #print(state, wheight)
+            print(self.areas[n])
+            print(state, wheight)
             #print(wheight)
             nextState = np.random.choice(self.nStates,1, p=wheight)
             #nextState = np.random.choice(self.nStates,1)
@@ -236,7 +249,7 @@ for s in ueSpeed:
         tempCsi = []
         for x in range(execs):
             #filename = 'out/'+s+'/'+b+'/'+str(x)
-            filename = 'instances/out/'+s+'/'+b+'/'+str(x)
+            filename = 'instances/'+s+'/'+b+'/'+str(x)
             try:
                 with open(filename, 'r') as jsonfile:
                     data = load(jsonfile)

@@ -23,19 +23,26 @@ def blockageScore(blockers, blockerList, uePos, delta=None):
 parser = ArgumentParser()
 parser.add_argument('-s','--speed')
 parser.add_argument('-b','--block')
+parser.add_argument('-x','--seed')
 #parser.add_argument('-i','--instance')
 
 args = parser.parse_args()
 
-seeds = [i for i in range(30)]
+seeds = [args.seed] #i for i in range(30)]
 
 for s in seeds:
-    print('Actual seed: ', s)
-    filename = args.speed+'/'+args.block+'/'+str(s)
+    #print('Actual seed: ', s)
+    #filename = args.speed+'/'+args.block+'/'+str(s)
+    #filename = args.block+'/'+str(s)
+    filename = str(s)
     with open(filename,'r') as jsonfile:
-        data = load(jsonfile)
+        try:
+            data = load(jsonfile)
+        except Exception as e:
+            print(e)
+            exit()
 
-    print('Number of blockers: ', len(data['blockers']))
+    #print('Number of blockers: ', len(data['blockers']))
 
     # Trasform the obstacles in polygons
     blockers = []
@@ -58,8 +65,8 @@ for s in seeds:
             gamma[m].append([])
             listOfBlockers = []
             for t in range(data['scenario']['simTime']):
-                if t%1000 == 0:
-                    print(t)
+                #if t%1000 == 0:
+                #   print(t)
 
                 gamma[m][n].append(0)
 

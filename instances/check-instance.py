@@ -11,7 +11,7 @@ parser.add_argument('-b','--block')
 
 args = parser.parse_args()
 
-seeds = randint(0,30, 3)
+seeds = ['20']#randint(0,30, 3)
 
 avgErrors = []
 for s in seeds:
