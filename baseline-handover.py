@@ -43,6 +43,8 @@ class BaseStation(object):
         self.numerology = components.numerology(bsDict['subcarrierSpacing']/1e3)
         self.slotsPerSubframe = bsDict['subcarrierSpacing']/(15*1e3)
 
+        self.associationDelay = 0
+
 
     def burstSet(self, burstDuration, burstPeriod, rachPeriod):
         '''
@@ -71,15 +73,18 @@ class BaseStation(object):
                 ### Flagging that the SSB is finished
                 self.onSSB = False
 
-                if ((self.frameIndex + (burstPeriod/defs.FRAME_DURATION))/
-                        (rachPeriod/defs.FRAME_DURATION) != 0):
+                ### Verifies whether the next SSB is a RACH
+                if ((self.ssbIndex+1)%(rachPeriod/defs.FRAME_DURATION) != 0):
+                    ### No, the next is not a RACH
                     self.nextSSB = self.env.now + (burstPeriod - burstDuration)
                 else:
-                    self.nextSSB = self.env.now + (rachPeriod - burstDuration)
+                    ### Yes, the next is a RACH
+                    self.nextSSB = self.env.now + (2*burstPeriod - burstDuration)
 
                 yield self.env.timeout(burstPeriod - burstDuration)
 
             else:
+                ### The previous was a RACH
                 yield self.env.timeout(burstPeriod)
 
     def updateFrame(self):
@@ -143,6 +148,9 @@ class BaseStation(object):
         defined with base station at the center
         '''
         return np.rad2deg(np.arctan2(user.y - self.y, user.x - self.x))
+
+    def setAssociationDelay(self, delay):
+        self.associationDelay = delay
 
 
 
@@ -215,6 +223,7 @@ class MobileUser(object):
                 'deliveryRate' : 0,
                 'delay' : [],
                 'association' : []
+                #'hoAttempts': []
                 }
 
         self.blockage = {}
@@ -305,10 +314,18 @@ class MobileUser(object):
         self.servingBS = baseStation
         self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS),0])
         
-        # yields untill the downlink and uplink sync is completed
+        # yields untill the downlink sync is completed
+        yield self.env.timeout(
+                self.listBS[self.servingBS].nextSSB + defs.BURST_DURATION  - self.env.now
+                )
+        
+        # yields untill the uplink sync is completed
         yield self.env.timeout(
                 self.listBS[self.servingBS].nextRach + defs.BURST_DURATION  - self.env.now
                 )
+
+        # yields for the BS association delay
+        yield self.env.timeout(self.listBS[self.servingBS].associationDelay)
 
         # Now, the UE is in sync with the serving BS
         self.sync = True
@@ -474,7 +491,7 @@ class MobileUser(object):
                     self.kpi['pingpong'] += 1
 
                 # Switch to the new BS
-                self.switchToNewBS(targetBS)
+                self.env.process(self.switchToNewBS(targetBS))
 
     def handoverFailure(self):
         self.lastBS.append(self.servingBS)
@@ -482,12 +499,40 @@ class MobileUser(object):
         self.reassociationFlag = False
         self.kpi['handoverFail'] += 1
 
+        # It seems there is a sync=False here
+        self.sync = False
+
 
     def switchToNewBS(self, targetBS):
         self.lastBS.append(self.servingBS)
         self.servingBS = targetBS
         self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS), self.env.now])
-        #Needs to implement the gap between the user is in total sync with new BS
+
+        # The time gap between the disassociation from the Serving BS to the
+        # target BS is known as handover interruption time (HIT) and it is
+        # the for the UE to get synced with the target BS. There is no data
+        # connection during this time interval, so the UE remains unsynced
+        self.sync = False 
+
+        #print(self.listBS[self.servingBS].nextSSB, self.listBS[self.servingBS].frameIndex, self.env.now)
+
+        # yields untill the downlink sync is completed
+        yield self.env.timeout(
+                self.listBS[self.servingBS].nextSSB + defs.BURST_DURATION  - self.env.now
+                )
+
+        #print(self.listBS[self.servingBS].nextRach, self.env.now)
+
+        # yields untill the uplink sync is completed
+        yield self.env.timeout(
+                self.listBS[self.servingBS].nextRach + defs.BURST_DURATION  - self.env.now
+                )
+
+        # yields for the BS association delay
+        yield self.env.timeout(self.listBS[self.servingBS].associationDelay)
+
+        # Now the UE is up and downlink synced
+        self.sync = True
 
 
     # This method schedules the packets transmission
@@ -518,6 +563,7 @@ class MobileUser(object):
                         temp *= 0.9
                         yield self.env.timeout(1)
                         timer += 1
+
 
 
     # This method processes the LOS info from the instance
@@ -604,6 +650,8 @@ class MobileUser(object):
                     plt.ylabel('Received Reference Signal Receive Power [dBm]')
 
                 for n, p in enumerate(self.plotRecvRSRP):
+                    if n == 0 or n == 1:
+                        continue
                     plt.plot(p,color=colors[n+1],label='BS '+str(n))
 
 
@@ -717,7 +765,8 @@ class Simulator(object):
 parser = argparse.ArgumentParser()
 parser.add_argument('-i','--inputFile', help='Instance json input file')
 parser.add_argument('-p','--plot', action='store_true', help='xxx')
-parser.add_argument('--ttt', type=int, default=640)
+parser.add_argument('--ttt', type=int, default=640, help='Time to trigger value')
+parser.add_argument('--delay', type=int, default=0, help='Base Stations association delay')
 args = parser.parse_args()
 
 
@@ -765,6 +814,7 @@ if __name__ == '__main__':
     for i in network:
         baseStations[i['uuid']] = BaseStation(i, sim)
         baseStations[i['uuid']].initializeServices()
+        baseStations[i['uuid']].setAssociationDelay(args.delay)
 
     sim.addBaseStations(baseStations)
 
