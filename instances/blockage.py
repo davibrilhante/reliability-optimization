@@ -3,6 +3,7 @@ from matplotlib import pyplot as plt
 from shapely.geometry.polygon import Polygon
 from shapely.geometry import LineString
 from shapely.geometry import Point
+from shapely.geometry import MultiPoint
 
 
 class SuperLine(LineString):
@@ -131,22 +132,53 @@ class SuperLine(LineString):
 
 
 
-def blockers_gen(rate, scenario, Plot = False):
+def blockers_gen(rate, scenario, route, Plot = False, tolerance = 150):
     #The blockage rate is given in square meters blocked
     blockers = {}
     blockers['objects'] = []
+    '''
     totalArea = (scenario['boundaries']['xmax']-scenario['boundaries']['xmin'])*(
                 scenario['boundaries']['ymax']-scenario['boundaries']['ymin'])
+    routeBuffer = route.buffer(tolerance, cap_style=3)
+    totalArea = routeBuffer.area - 2*tolerance*np.sqrt(((tolerance**2)/2) - (tolerance/2)**2)
+    #'''
+
+    routeBuffer = MultiPoint([(scenario['boundaries']['xmin'], scenario['boundaries']['ymin']),
+        (scenario['boundaries']['xmin'] + tolerance, scenario['boundaries']['ymin']),
+        (scenario['boundaries']['xmin'], scenario['boundaries']['xmin'] + tolerance),
+        (scenario['boundaries']['xmax'] - tolerance, scenario['boundaries']['ymax']),
+        (scenario['boundaries']['xmax'], scenario['boundaries']['xmax'] - tolerance),
+        (scenario['boundaries']['xmax'], scenario['boundaries']['ymax'])]).convex_hull
+
+    totalArea = routeBuffer.area
 
     totalBlockers = np.random.poisson(rate*totalArea)
+    #print(totalArea)
+    #print(totalBlockers)
 
     nBlockers = 0 
     while(nBlockers < totalBlockers):#rate*totalArea):
+        centroidX = np.random.randint(scenario['boundaries']['xmin'],scenario['boundaries']['xmax'])
+        centroidY = np.random.randint(scenario['boundaries']['ymin'],scenario['boundaries']['ymax'])
+
+        point = Point([centroidX, centroidY])
+
+        '''    
+        if type(route) == type(LineString([(0,0),(1,1)])):
+            upperlimit = route.parallel_offset(tolerance,'left')
+            lowerlimit = route.parallel_offset(tolerance,'right')
+
+            if not (upperlimit.crosses(point) or lowerlimit.crosses(point)):
+                continue
+        '''
+        if not (routeBuffer.contains(point)):
+            continue
+
         blockers['objects'].append({})
         blockers['objects'][-1]['nVertices'] = 4 #All objects are quadrilaterals
 
-        centroidX = np.random.randint(scenario['boundaries']['xmin'],scenario['boundaries']['xmax'])
-        centroidY = np.random.randint(scenario['boundaries']['ymin'],scenario['boundaries']['ymax'])
+
+
         blockers['objects'][-1]['centroid'] = {
                 'x':centroidX,
                 'y':centroidY
@@ -162,6 +194,7 @@ def blockers_gen(rate, scenario, Plot = False):
             plt.plot(x, y, color='red')
 
         nBlockers += 1
+    plt.show()
     return blockers
 
 
@@ -206,8 +239,17 @@ def advanceintime(polygon, uex, uey, ue, bs):
 
 
 
-def blockage(rate, scenario, baseStations, userEquipments, Filter=1, Plot = False):
-    blockers = blockers_gen(rate, scenario,Plot)
+def blockage(rate, scenario, baseStations, userEquipments, Filter=1, tolerance = 150, Plot = False):
+    '''
+    ueRoute = LineString([(userEquipments[0]['position']['x'],userEquipments[0]['position']['y']),
+            (userEquipments[0]['position']['x'] + (userEquipments[0]['speed']['x']/3.6)*(scenario['simTime']*1e-3),
+            userEquipments[0]['position']['y'] + (userEquipments[0]['speed']['y']/3.6)*(scenario['simTime']*1e-3))])
+    #'''
+
+    ueRoute = LineString([(scenario['boundaries']['xmin'], scenario['boundaries']['ymin']), 
+        (scenario['boundaries']['xmax'], scenario['boundaries']['ymax'])])
+
+    blockers = blockers_gen(rate, scenario, ueRoute, Plot, tolerance)#Plot)
 
     blockage = []
     gamma = []
@@ -295,11 +337,13 @@ def blockage(rate, scenario, baseStations, userEquipments, Filter=1, Plot = Fals
             plt.scatter(bs['position']['x'], bs['position']['y'], marker='D', color='blue')
         plt.show()
         colors = ['blue', 'green', 'orange', 'red']
+        '''
         for i, bs in enumerate(baseStations):
 
             plt.plot(gamma[i][0], label='BS '+str(i), color=colors[i])
         plt.legend()
         plt.show()
+        '''
 
 
     return [i['centroid'] for i in blockers['objects']], blockage#, gamma
