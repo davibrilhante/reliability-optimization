@@ -132,7 +132,8 @@ if args.blockage2:
 
 elif density > 0:
     #data['blockage'], data['gamma'] = blockage(density, data['scenario'], data['baseStation'], data['userEquipment'])
-    data['blockers'], data['blockage'] = blockage(density, data['scenario'], data['baseStation'], data['userEquipment'])
+    data['blockers'], data['blockage'] = blockage(density, data['scenario'], 
+                                data['baseStation'], data['userEquipment'], tolerance = 2*bs_radius)
 
 else:
     data['blockage'] = []
