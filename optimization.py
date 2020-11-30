@@ -86,27 +86,36 @@ with open(topdir+args.inputFile) as json_file:
     for p in data['userEquipment']:
         nodes.append(p)
 
+'''
 #scenario['simTime'] = min(12000, scenario['simTime'])
 for ue in nodes:
     ue['nPackets'] = int(scenario['simTime']/500 - 1)
     ue['capacity'] = 750e6 #Bits per second
+'''
+
+### ---------------- Loading gamma file --------------------
+with open('instances/gamma/'+
+        str(nodes[0]['speed']['x'])+'/'+str(scenario['blockageDensity'])+'/'+str(scenario['seed'])
+        ) as json_file:
+    try:
+        data = json.load(json_file)
+    except:
+        sys.exit()
+    gamma = data
 
 n_ue = len(nodes)
 m_bs = len(network)
 
 
 SNR = []
-gamma = []
 
 ### -------- Beginning of the Preprocessing phase ----------
 #
 # SNR evaluation
 for m, bs in enumerate(network):
     SNR.append([])
-    gamma.append([])
     for n,ue in enumerate(nodes):
         SNR[m].append([])
-        gamma[m].append([])
         listOfBlockers = []
         #Adding the time dependency
         for t in range(scenario['simTime']):
@@ -115,9 +124,9 @@ for m, bs in enumerate(network):
             else:
                 los = False
             SNR[m][n].append(calc_snr(bs,ue,channel,los,t))
-            gamma[m][n].append(0)
-            #if gamma[m][n][t] == float('inf') or gamma[m][n][t] == float('nan'):
-            #    gamma[m][n][t] = 1.0
+            if gamma[m][n][t] == float('inf') or gamma[m][n][t] == float('nan'):
+                gamma[m][n][t] = 1.0
+
 
 # Creating Beta array (handover flag)
 tau = args.timetotrigger
@@ -207,7 +216,7 @@ for m in range(m_bs):
 
 
 
-# 3 - LOS condition and UE association limit constraint. Each UE can be associate with only one BS
+# 2 - LOS condition and UE association limit constraint. Each UE can be associate with only one BS
 for n in range(n_ue):
     for t in range(scenario['simTime']):
         '''
@@ -222,7 +231,7 @@ for n in range(n_ue):
         model.addConstr(sum(y[m][n][t] for m in range(m_bs)) <=1)# los)
 
 
-# 4 - Delay requirement constraints
+# 3 - Delay requirement constraints
 for m, bs in enumerate(network):
     for n,ue in enumerate(nodes):
         #for p, arrival in enumerate(ue['packets']):
@@ -242,14 +251,14 @@ for m in range(m_bs):
         for t in range(scenario['simTime']):
             model.addConstr(2*w[m][n][t] == x[m][n][t]+y[m][n][t])
 #'''
-# 5 - 
+# 4 - 
 for n,ue in enumerate(nodes):
     model.addConstr(sum(sum(x[m][n][t] for t in range(scenario['simTime'])) for m in range(m_bs)) <= ue['nPackets'])
     model.addConstr(sum(sum(y[m][n][t] for t in range(scenario['simTime'])) for m in range(m_bs)) <= ue['nPackets'])
 
 
 
-# 6 - There is no transmission to an UE before it arrives, also y cannot be 1 if after the delay interval
+# 5 - There is no transmission to an UE before it arrives, also y cannot be 1 if after the delay interval
 for n,ue in enumerate(nodes):
 #    model.addConstr(sum(sum(y[m][n][t] for t in range(ue['arrival']+ue['delay'],scenario['simTime'])) for m in range(m_bs)) == 0)
     #for p, arrival in enumerate(ue['packets']):
@@ -276,7 +285,7 @@ for n,ue in enumerate(nodes):
 
 
 
-# 7 - If the Received power is under the threshold, them the transmission cannot occur through this BS
+# 6 - If the Received power is under the threshold, them the transmission cannot occur through this BS
 for n,ue in enumerate(nodes):
     for t in range(scenario['simTime']):
         #model.addConstr(sum((SNR[m][n][t] - ue['threshold'])*x[m][n][t]*LOS[m][n][t] for m in range(m_bs)) >= 0)
@@ -287,7 +296,7 @@ for i in range(m_bs):
     for j in range(m_bs):
         if i!=j:
             bs_pairs.append([i,j])
-# 8 - 
+# 7 - 
 for p,q in bs_pairs:
     for n,ue in enumerate(nodes):
         #for k,arrival  in enumerate(ue['packets']):
@@ -447,9 +456,12 @@ for n,ue in enumerate(nodes):
     #delay = []
     for m in range(m_bs):
         #for k in ue['packets']:
-        for p in range(ue['nPackets']):
-            k = ue['packets'][p]
-            l = ue['packets'][p+1]
+        #for p in range(ue['nPackets']):
+        for p, k in enumerate(ue['packets']):
+            if p == ue['nPackets'] - 1:
+                l = scenario['simTime']
+            else:
+                l = ue['packets'][p+1]
             #print(k)
             for t in range(k, l):
                 if t < scenario['simTime'] and x[m][n][t] == 1:
