@@ -1,3 +1,6 @@
+# /usr/bin/env python3
+# -*- coding : utf8 -*-
+
 from json import load
 from argparse import ArgumentParser
 from shapely.geometry import Polygon, LineString
@@ -7,7 +10,7 @@ from numpy import mean
 parser = ArgumentParser()
 parser.add_argument('-s','--speed')
 parser.add_argument('-b','--block')
-#parser.add_argument('-i','--instance')
+parser.add_argument('-i','--instance')
 
 args = parser.parse_args()
 
