@@ -303,7 +303,8 @@ class MobileUser(object):
         ### FIRST TIME USER ASSOCIATON
         #if self.servingBS == None and self.listedRSRP[maxRSRP] > self.sensibility:
         self.servingBS = baseStation
-        self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS),0])
+        self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS),
+                                        self.env.now])
         
         # yields untill the downlink and uplink sync is completed
         yield self.env.timeout(
@@ -316,7 +317,7 @@ class MobileUser(object):
     def reassociation(self, baseStation):
         self.kpi['reassociation'] += 1
         self.reassociationFlag = True
-        self.env.process(firstAssocation(baseStation))
+        self.env.process(self.firstAssociation(baseStation))
 
 
     # Checks the handover event condition
@@ -327,13 +328,11 @@ class MobileUser(object):
 
         ### FIRST TIME USER ASSOCIATON
         if self.servingBS == None and self.listedRSRP[maxRSRP] > self.sensibility:
-            self.env.process(self.firstAssociation(maxRSRP))
-
-
-        # User became out of sync or a handover failed due to loss of sync
-        elif self.servingBS == None and len(self.lastBS)>0 and not self.sync:
-            self.reassociation(maxRSRP)
-
+            if self.lastBS:
+                self.reassociation(maxRSRP)
+            else:
+                self.env.process(self.firstAssociation(maxRSRP))
+        
 
         elif self.servingBS != None:
             # Check if the UE is in sync with the BS
@@ -341,13 +340,18 @@ class MobileUser(object):
 
             snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
             #print(self.env.now, maxRSRP, self.listedRSRP[maxRSRP], self.servingBS, self.listedRSRP[self.servingBS], snr)
-            rate = self.listBS[self.servingBS].bandwidth*np.log2(1 + snr)
+            rate = self.listBS[self.servingBS].bandwidth*np.log2(1 + max(snr,0))
             self.kpi['capacity'].append(rate)
 
             # This is the condition trigger a handover
             if maxRSRP != self.servingBS:
                 self.env.process(self.handover(maxRSRP))
 
+        '''# User became out of sync or a handover failed due to loss of sync
+        elif self.servingBS == None and len(self.lastBS)>0 and not self.sync:
+            print('We are here now %d'%(self.env.now))
+            self.reassociation(maxRSRP)
+        #'''
 
         self.plotAssociation.append(self.servingBS)
 
@@ -366,22 +370,17 @@ class MobileUser(object):
             if self.listedRSRP[self.servingBS] < self.qualityOut and self.qualityOutCounter == 0:
                 downcounter = self.t310
                 while downcounter > 0:
+                    #print(self.env.now, downcounter)
 
                     if self.qualityOutCounter >= self.n310:
                         # Start out of sync counter
                         downcounter -= 1
                         yield self.env.timeout(1)
 
-                    '''
                     elif self.listedRSRP[self.servingBS] < self.qualityOut:
-                        self.qualityOutCounter += 1
-                        yield self.env.timeout(1) ### maybe it should be time to meas instead ???
-                        ### Call updatelistbs ???
-
-                    ### It was only a channel fluctation, and servingBS RSRP > qualityOut ???
-                    else:
-                        break
-                    '''
+                        # Saves the number of time slots with low received RSRP                        
+                        self.qualityOutCounter += 1                        
+                        yield self.env.timeout(1)
 
 
                     # The channel is better now and the signal to serving BS
@@ -426,8 +425,11 @@ class MobileUser(object):
     def handover(self, targetBS):
         counterTTT = 0
 
+        if not self.sync:
+            self.handoverFailure()
+
         # First, check if another measurement is not in progress
-        if not self.measOccurring:
+        elif not self.measOccurring:
             #targetBS = max(self.listedRSRP.items(), key=operator.itemgetter(1))[0]
 
             # If it is not, check whether it is an A3 event or not
@@ -441,8 +443,12 @@ class MobileUser(object):
                     yield self.env.timeout(1)
                     counterTTT += 1
 
-                    # The A3 condition still valid? If not, stop the timer
-                    if self.listedRSRP[targetBS] - self.HOHysteresis <= self.listedRSRP[self.servingBS] + self.HOOffset:
+                    if self.sync:
+                        # The A3 condition still valid? If not, stop the timer
+                        if self.listedRSRP[targetBS] - self.HOHysteresis <= self.listedRSRP[self.servingBS] + self.HOOffset:
+                            break
+                    else:
+                        self.handoverFailure()
                         break
 
 
