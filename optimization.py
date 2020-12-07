@@ -2,31 +2,32 @@
 # -*- coding : utf8 -*-
 
 
-import json
-import numpy as np
-import gurobipy as gb
-from gurobipy import GRB
-import argparse
-import sys
+from json import load, dump, dumps
+from numpy import hypot, log10, pi, exp, log2, mean, array
+from gurobipy import Env, Model, GurobiError, GRB, quicksum
+from argparse import ArgumentParser
 from matplotlib import pyplot as plt
+
+from guppy import hpy 
+
 
 def calc_recv(base : dict, user : dict, channel : dict, los : bool, t=0) -> float:
     # Evaluating the new position according with the vehicle speed (Change for vectorial speed)
     new_position_x = user['position']['x'] + (user['speed']['x']/3.6)*(t*1e-3)
     new_position_y = user['position']['y'] + (user['speed']['y']/3.6)*(t*1e-3)
-    distance = np.hypot(base['position']['x'] - new_position_x, base['position']['y'] - new_position_y)
+    distance = hypot(base['position']['x'] - new_position_x, base['position']['y'] - new_position_y)
     wavelength = 3e8/base['frequency']
 
     bs_antenna_gain = 10
     ue_antenna_gain = 10
     exponent = channel['lossExponent']
 
-    pl_0 = 20*np.log10(4*np.pi/wavelength)
+    pl_0 = 20*log10(4*pi/wavelength)
 
     if los:
-        path_loss = pl_0 + 10*2*np.log10(distance) #+ np.random.normal(0,5.8)
+        path_loss = pl_0 + 10*2*log10(distance) #+ np.random.normal(0,5.8)
     else:
-        path_loss = pl_0 + 10.6 + 10*2.92*np.log10(distance) #+ np.random.normal(0,8.7)
+        path_loss = pl_0 + 10.6 + 10*2.92*log10(distance) #+ np.random.normal(0,8.7)
 
     #path_loss = pl_0 + 10*exponent*np.log10(distance) #- np.random.normal(0,8.96)
     return base['txPower'] + bs_antenna_gain + ue_antenna_gain - path_loss
@@ -45,9 +46,9 @@ def calc_snr(base : dict, user : dict, channel : dict, los : bool, t=0) -> float
 
 def blockageScore(blockers, blockerList, uePos, delta=None):
     if delta == 1 or delta == None:
-        delta = lambda x1, y1, x2, y2: 1/np.hypot(x1-x2, y1-y2)
+        delta = lambda x1, y1, x2, y2: 1/hypot(x1-x2, y1-y2)
     elif delta == 2:
-        delta = lambda x1, y1, x2, y2: np.exp(-1*np.hypot(x1-x2, y1-y2))
+        delta = lambda x1, y1, x2, y2: exp(-1*np.hypot(x1-x2, y1-y2))
 
     gamma = 0
     for i in blockerList:
@@ -56,7 +57,7 @@ def blockageScore(blockers, blockerList, uePos, delta=None):
     return gamma
 
 
-parser = argparse.ArgumentParser()
+parser = ArgumentParser()
 parser.add_argument('-i','--inputFile', help='Instance json input file')
 parser.add_argument('-p','--plot', action='store_true', help='Enables plot')
 parser.add_argument('-t','--timetotrigger', type=int, default=640, help='Time to trigger')
@@ -72,7 +73,7 @@ topdir = 'instances/'
 ### Create base data
 with open(topdir+args.inputFile) as json_file:
     try:
-        data = json.load(json_file)
+        data = load(json_file)
     except:
         sys.exit()
 
@@ -86,21 +87,17 @@ with open(topdir+args.inputFile) as json_file:
     for p in data['userEquipment']:
         nodes.append(p)
 
-'''
-#scenario['simTime'] = min(12000, scenario['simTime'])
 for ue in nodes:
-    ue['nPackets'] = int(scenario['simTime']/500 - 1)
-    ue['capacity'] = 750e6 #Bits per second
-'''
+    ue['capacity'] /= 1e9
 
 ### ---------------- Loading gamma file --------------------
 with open('instances/gamma/'+
         str(nodes[0]['speed']['x'])+'/'+str(scenario['blockageDensity'])+'/'+str(scenario['seed'])
         ) as json_file:
     try:
-        data = json.load(json_file)
+        data = load(json_file)
     except:
-        sys.exit()
+        exit()
     gamma = data
 
 n_ue = len(nodes)
@@ -154,25 +151,26 @@ for p in range(m_bs):
 R = []
 for bs in network:
     bw_per_rb = 12*bs['subcarrierSpacing'] #12 subcarriers per resouce block times 120kHz subcarrier spacing
-    R.append(bw_per_rb*bs['resourceBlocks'])
+    R.append(bw_per_rb*bs['resourceBlocks']/1e9)
 ### ----------- End of preprocessing phase ---------------
 
 
 
 ### Create environment and model
-optEnv = gb.Env('myEnv.log')
-optEnv.setParam('OutputFlag', 0)
-model = gb.Model('newModel', optEnv)
+optEnv = Env('myEnv.log')
+#optEnv.setParam('OutputFlag', 0)
+optEnv.setParam('NumericFocus', 3)
+model = Model('newModel', optEnv)
 
 ### Quadratic constraints control
-model.presolve().setParam(GRB.Param.PreQLinearize,1)
+model.presolve().setParam(GRB.Param.PreQLinearize,2)
 
 
 
 ### Add variables to the model
 x = []
 y = []
-#'''
+'''
 w = []
 for m in range(m_bs):
     w.append([])
@@ -199,6 +197,40 @@ for m in range(m_bs):
                         name='y'+str(m)+str(n)+str(t)))
 
 
+### Set objective function
+#
+# 1 - Maximize the number of users which delay and capacity requirements were
+# fulfilled
+'''
+model.setObjective(
+        quicksum(
+            quicksum(
+                quicksum(
+                    (1-gamma[m][n][t])*(x[m][n][t]+y[m][n][t]) 
+                    for t in range(scenario['simTime'])) 
+                for n in range(n_ue)) 
+            for m in range(m_bs)), 
+        GRB.MAXIMIZE
+        )
+'''
+model.ModelSense = GRB.MAXIMIZE
+obj = quicksum(              
+            quicksum(          
+                quicksum(      
+                    #(1-gamma[m][n][t])*(x[m][n][t]+y[m][n][t]) 
+                    #SNR[m][n][t]*(x[m][n][t] + y[m][n][t])
+                    y[m][n][t]
+                    for t in range(scenario['simTime'])) 
+                for n in range(n_ue)) 
+            for m in range(m_bs))
+
+
+model.setObjective(obj)
+model.update()
+
+h = hpy()
+print(h.heap())
+
 ### Add constraints to the model
 #
 # 1 - Capacity requirement constraint
@@ -207,7 +239,8 @@ for m in range(m_bs):
     for n,ue in enumerate(nodes):
         for t in range(scenario['simTime']):
             model.addConstr(ue['capacity']*x[m][n][t] <= 
-                    R[m]*np.log2(1+SNR[m][n][t]))#*LOS[m][n][t])
+                    R[m]*log2(1+SNR[m][n][t]))#*LOS[m][n][t])
+
 
             #model.addConstr(r[m][n][t]*LOS[m][n][t] 
             #        >= ue['capacity']*x[m][n][t])
@@ -239,9 +272,15 @@ for m, bs in enumerate(network):
             arrival = ue['packets'][p]
             #model.addConstr(sum(sum(x[m][n][k] for k in range(arrival,arrival+ue['delay'])) for m in range(m_bs))
             #        == sum(sum(y[m][n][k] for k in range(arrival,arrival+ue['delay'])) for m in range(m_bs)))
+            '''
             model.addConstr(
                     sum(x[m][n][k] for k in range(arrival,arrival+ue['delay']))
                     == sum(y[m][n][k] for k in range(arrival,arrival+ue['delay']))
+                    )
+            #'''
+            model.addConstr(
+                    sum(y[m][n][k] for k in range(arrival,arrival+ue['delay']))
+                    <= sum(x[m][n][k] for k in range(arrival,arrival+ue['delay']))
                     )
 
 '''
@@ -261,10 +300,11 @@ for n,ue in enumerate(nodes):
 # 5 - There is no transmission to an UE before it arrives, also y cannot be 1 if after the delay interval
 for n,ue in enumerate(nodes):
 #    model.addConstr(sum(sum(y[m][n][t] for t in range(ue['arrival']+ue['delay'],scenario['simTime'])) for m in range(m_bs)) == 0)
-    #for p, arrival in enumerate(ue['packets']):
-    for p in range(ue['nPackets']):
-        arrival = ue['packets'][p]
-        model.addConstr(sum(sum(y[m][n][t] for t in range(arrival,arrival+ue['delay'])) for m in range(m_bs)) <= 1)
+    for p, arrival in enumerate(ue['packets']):
+    #for p in range(ue['nPackets']):
+        #arrival = ue['packets'][p]
+
+        model.addConstr(sum(sum(y[m][n][t] for t in range(arrival,arrival+ue['delay']+1)) for m in range(m_bs)) <= 1)
 
         ### I am using 10 millisecond as a limit for a packet to be sent
         if p == 0:
@@ -296,12 +336,13 @@ for i in range(m_bs):
     for j in range(m_bs):
         if i!=j:
             bs_pairs.append([i,j])
-# 7 - 
+
+# 7 - Handover constraint
 for p,q in bs_pairs:
     for n,ue in enumerate(nodes):
-        #for k,arrival  in enumerate(ue['packets']):
-        for k in range(ue['nPackets']):
-            arrival = ue['packets'][n]
+        for k,arrival  in enumerate(ue['packets']):
+        #for k in range(ue['nPackets']):
+            #arrival = ue['packets'][n]
             #if k < len(ue['packets'])- 1:
             if k < ue['nPackets'] - 1:
                 for t1 in range(ue['delay']):
@@ -318,31 +359,18 @@ for p,q in bs_pairs:
                                 y[q][n][arrival+t1]*y[q][n][arrival2+t2] <= 1)
 
 
-### Set objective function
-#
-# 1 - Maximize the number of users which delay and capacity requirements were
-# fulfilled
-model.setObjective(
-        sum(
-            sum(
-                sum(
-                    (1-gamma[m][n][t])*(x[m][n][t]+y[m][n][t]) 
-                    #SNR[m][n][t]*(x[m][n][t]+y[m][n][t]) 
-                    for t in range(scenario['simTime'])) 
-                for n in range(n_ue)) 
-            for m in range(m_bs)), 
-        GRB.MAXIMIZE
-        )
 
 
+h = hpy()
+print(h.heap())
 model.write('myModel.lp')
 
 ### Compute optimal Solution
 try:
     model.optimize()
-except gb.GurobiError:
+except GurobiError:
     print('Optimize  failed')
-    sys.exit()
+    exit()
 
 
 ### Print Info
@@ -350,20 +378,22 @@ v = model.getVars()
 
 x = [[[] for j in range(n_ue)] for i in range(m_bs)]
 y = [[[] for j in range(n_ue)] for i in range(m_bs)]
-w = [[[] for j in range(n_ue)] for i in range(m_bs)]
+#w = [[[] for j in range(n_ue)] for i in range(m_bs)]
 start =  m_bs*n_ue*scenario['simTime']
 counter = 0
 for m in range(m_bs):
     for n in range(n_ue):
         #print(start + counter*scenario['simTime'], 2*start + counter*scenario['simTime'])
         for t in range(scenario['simTime']):
-            if v[start + counter*scenario['simTime']+t].x == 1:
+            #if v[start + counter*scenario['simTime']+t].x == 1:
+            if v[counter*scenario['simTime']+t].x == 1:
                 x[m][n].append(1)
 
             else:
                 x[m][n].append(0)
 
-            if v[2*start + counter*scenario['simTime']+t].x == 1:
+            #if v[2*start + counter*scenario['simTime']+t].x == 1:
+            if v[start + counter*scenario['simTime']+t].x == 1:
                 y[m][n].append(1)
             else:
                 y[m][n].append(0)
@@ -394,14 +424,14 @@ for n,ue in enumerate(nodes):
     time_cap_attended = []
     for m in range(m_bs):
         time_cap_attended.append(sum(x[m][n]))
-    print(sum(time_cap_attended)/ue['nPackets'])
+    #print(sum(time_cap_attended)/ue['nPackets'])
     kpi['partCap'] = sum(time_cap_attended)/ue['nPackets']
 
     time_delay_attended = []
     # Fraction of time delay requirement was fulfiled
     for m in range(m_bs):
         time_delay_attended.append(sum(y[m][n]))
-    print(sum(time_delay_attended)/ue['nPackets'])
+    #print(sum(time_delay_attended)/ue['nPackets'])
     kpi['partDelay'] = sum(time_delay_attended)/ue['nPackets']
 
     #Calculating number of handovers
@@ -430,8 +460,8 @@ for n,ue in enumerate(nodes):
         for m in range(m_bs):
             if x[m][n][t] == 1:
                 #throughput.append(12*network[m]['subcarrierSpacing']*R[m]*np.log2(1+SNR[m][n][t]))
-                kpi['throughput'].append(R[m]*np.log2(1+SNR[m][n][t]))
-    print(np.mean(kpi['throughput']))
+                kpi['throughput'].append(R[m]*log2(1+SNR[m][n][t]))
+    print(mean(kpi['throughput']))
 
 
     #Calculating System Capacity
@@ -440,8 +470,8 @@ for n,ue in enumerate(nodes):
         for m in range(m_bs):
             if x[m][n][t] == 1:
                 #throughput.append(12*network[m]['subcarrierSpacing']*R[m]*np.log2(1+SNR[m][n][t]))
-                kpi['capacity'].append(R[m]*np.log2(1+SNR[m][n][t]))
-    print(np.mean(kpi['capacity']))
+                kpi['capacity'].append(R[m]*log2(1+SNR[m][n][t]))
+    print(mean(kpi['capacity']))
 
     #Calculating Packets Succesfully Sent
     packetsSent = []
@@ -449,8 +479,8 @@ for n,ue in enumerate(nodes):
     for m in range(m_bs):
         temp.append(x[m][n].count(1))
     packetsSent.append(sum(temp)/ue['nPackets'])
-    print(np.mean(packetsSent))
-    kpi['deliveryRate'] = np.mean(packetsSent)
+    print(mean(packetsSent))
+    kpi['deliveryRate'] = mean(packetsSent)
 
     #Average delay
     #delay = []
@@ -467,13 +497,16 @@ for n,ue in enumerate(nodes):
                 if t < scenario['simTime'] and x[m][n][t] == 1:
                     kpi['delay'].append(t - k)
                     break
-    print(np.mean(kpi['delay']))
+    print(mean(kpi['delay']))
     kpi['uuid'] = ue['uuid']
         
 if args.save:
     filename = 'instances/opt/'+args.inputFile
     with open(filename, 'w') as jsonfile:
-        json.dump(kpi, jsonfile, indent=4)
+        dump(kpi, jsonfile, indent=4)
+else:
+    result = dumps(kpi)
+print(result)
 
 ############################## PLOT SECTION ###################################
 if args.plot:
@@ -486,17 +519,20 @@ if args.plot:
             else:
                 plos[m].append(-1)
 
-    colors = ['b','g','orange','r']
+    colors = ['b','g','orange','r', ]
     for n in range(n_ue):
         for m in range(m_bs):
-            plot1 = np.array(x[m][n])*(5*(n+1))
-            plot2 = np.array(y[m][n])*(5*(n+3))
-            plt.plot(SNR[m][n], label='BS '+str(m), color=colors[m])
+            plot1 = array(x[m][n])*(5*(n+1))
+            plot2 = array(y[m][n])*(5*(n+3))
+            plt.plot(SNR[m][n], label='BS '+str(m))#, color=colors[m])
             if n == 0:
-                plt.scatter(range(scenario['simTime']),plot1, color=colors[m], marker='s', s=8, label='BS '+str(m))
+                #plt.scatter(range(scenario['simTime']),plot1, color=colors[m], marker='s', s=8, label='BS '+str(m))
+                plt.scatter(range(scenario['simTime']),plot1, marker='s', s=8, label='BS '+str(m))
             else:
-                plt.scatter(range(scenario['simTime']),plot1, color=colors[m], marker='s', s=8)
-            plt.scatter(range(scenario['simTime']),plot2, color=colors[m], marker='o', s=8)
+                #plt.scatter(range(scenario['simTime']),plot1, color=colors[m], marker='s', s=8)
+                plt.scatter(range(scenario['simTime']),plot1, marker='s', s=8)
+            #plt.scatter(range(scenario['simTime']),plot2, color=colors[m], marker='o', s=8)
+            plt.scatter(range(scenario['simTime']),plot2, marker='o', s=8)
         #plt.scatter(range(scenario['simTime']),plos[m], marker='o', s=8)#color=colors[m], marker='o', s=8)
 
 
