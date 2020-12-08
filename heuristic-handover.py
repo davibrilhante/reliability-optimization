@@ -10,6 +10,9 @@ from collections import OrderedDict
 from itertools import product
 
 from matplotlib import pyplot as plt
+from resource import RLIMIT_AS, setrlimit, getrlimit
+from guppy import hpy
+from gc import collect
 
 #### 5G NR ENV
 import simutime
@@ -412,7 +415,7 @@ class BaseStation(object):
             values.append(tuple(temp))
 
         ### Evaluating the possible handover opportunities
-        opportunities = []
+        opportunities = [0]
         end = min(self.predictionWindow, self.simTime - self.env.now)
         for t in range(1, end):#self.predictionWindow):
             for n, bs in enumerate(candidates):
@@ -431,8 +434,8 @@ class BaseStation(object):
                     if t not in opportunities:
                         opportunities.append(t)
 
-        if not opportunities:
-            opportunities.append(end)
+        #if not opportunities:
+        opportunities.append(end)
 
 
         enumerated = {}
@@ -445,10 +448,11 @@ class BaseStation(object):
             receivedPower = []
             for bs in p:
                 begin = 0
-                for end in opportunities:
+                for end in opportunities[1:]:
                     for t in range(begin, end):
                         ### The received power per slot of all the HO configurations
                         receivedPower.append(values[t][candidates.index(bs)])
+                    begin = end
             if opportunities:
                 #for t in range(opportunities[-1], self.predictionWindow):
                 for t in range(opportunities[-1], min(self.predictionWindow, self.simTime - self.env.now)):
@@ -512,7 +516,7 @@ class BaseStation(object):
                 for bs in cfg:
                     cfgDelay[bs] = 0
 
-                for m, (bs, end) in enumerate(zip(cfg, opportunities)):
+                for m, (bs, end) in enumerate(zip(cfg, opportunities[1:])):
                     delay = 0
 
                     #print(m, bs, begin, end)
@@ -556,15 +560,15 @@ class BaseStation(object):
                             self.countPredictions[bs]
                             )
                     #'''
-
-
                     cfgDelay[bs] += delay
 
-                    end = begin
+                    #end = begin
+                    begin = end
 
                 # for m, (bs, end) in enumerate(zip(cfg, opportunities)):
 
                 evaluation['AvgDelay'].append(0)
+                lasts = []
                 for bs in cfg:
                     candidates[bs].append(cfgDelay[bs])
 
@@ -587,21 +591,29 @@ class BaseStation(object):
                     num = 0
                     den = 0
                     for w, val in enumerate(samples):
+                        '''
                         num += ((1-self.alpha)**(self.windowLen - w))*val
                         den += ((1-self.alpha)**(self.windowLen - w))
+                        '''
+                        num += ((1-self.alpha)**((len(samples)-1) - w))*val
+                        den += ((1-self.alpha)**((len(samples)-1) - w))
 
-                    evaluation['AvgDelay'][-1] += num/den
+
+
+                    if bs not in lasts:
+                        evaluation['AvgDelay'][-1] += num/den
+                        lasts.append(bs)
                     
                     #temp +=  self.metric['delayMovAvg'][bs]#*(end - begin)/(self.predctionWindow)
                 evaluation['offperiod'].append(offperiod)
-
-
 
             #print(evaluation)
 
             #selected = [configurations[np.argmin(evaluation)][0], opportunities]
             selected['offperiod'] = zip(configurations[np.argmin(evaluation['offperiod'])][0], opportunities)
-            selected['AvgDelay'] = zip(configurations[np.argmin(evaluation['AvgDelay'])][0], opportunities)
+            selected['AvgDelay'] = zip(configurations[np.argmin(evaluation['AvgDelay'])][0], opportunities[:-1])
+            #print(self.uuid)
+            #print(list(selected['AvgDelay']))
 
             for bs in list(self.neighbours.keys())+[self.uuid]:
                 if candidates[bs]:
@@ -787,6 +799,7 @@ class MobileUser(object):
     # At each time to measure, the UE updates the list of BS and check
     # if the handover event is happening
     def measurementEvent(self):
+        counter = 0
         while True:
             self.updateListBS()
             # Check if the UE is in sync with the BS
@@ -822,7 +835,7 @@ class MobileUser(object):
     def reassociation(self, baseStation):
         self.kpi['reassociation'] += 1
         self.reassociationFlag = True
-        self.env.process(firstAssocation(baseStation))
+        self.env.process(self.firstAssociation(baseStation))
 
 
     # Checks the handover event condition
@@ -986,6 +999,7 @@ class MobileUser(object):
         self.servingBS = None
         self.reassociationFlag = False
         self.kpi['handoverFail'] += 1
+        print('Handover Failure!!!')
 
         # It seems there is a sync=False here
         self.sync = False
@@ -1093,6 +1107,7 @@ class MobileUser(object):
 
                     ### Check whether the UE still has connection with the serving BS
                     if self.sync:
+                        #print('Switching to %s'%(bs))
                         self.env.process(self.switchToNewBS(bs))
                     else:
                         #print('Xiiii', self.env.now, self.listBS[self.servingBS].uuid, bs)
@@ -1301,7 +1316,8 @@ parser.add_argument('--delay', type=int, default=0, help='Base Stations associat
 parser.add_argument('--predWindow', type=int, default=50, help='Defines the blockage prediction window')
 parser.add_argument('--reqPeriod', type=int, default=50, help='Blockage prediction request period')
 parser.add_argument('--windowLen', type=int, default=10, help='moving average of given prediction critereon')
-parser.add_argument('--alpha', type=float, default=0.1, help='moving average of given prediction critereon')
+parser.add_argument('--alpha', type=float, default=0.1, help='exponent of the moving average of given prediction critereon')
+parser.add_argument('--nOptions', type=int, default=1, help='Number of neighbour BS to be considered in the prediction request')
 
 
 args = parser.parse_args()
@@ -1313,6 +1329,20 @@ def straightRoute(device : MobileUser):
     y = (device.Vy/3.6)*1e-3
     return x, y
 
+
+def memory_limit():
+    soft, hard = getrlimit(RLIMIT_AS)
+    print(get_memory())
+    setrlimit(RLIMIT_AS, (get_memory() * 1024 / 2, hard))
+
+def get_memory():
+    with open('/proc/meminfo', 'r') as mem:
+        free_memory = 0
+        for i in mem:
+            sline = i.split()
+            if str(sline[0]) in ('MemFree:', 'Buffers:', 'Cached:'):
+                free_memory += int(sline[1])
+    return free_memory
 
 
 if __name__ == '__main__':
@@ -1370,7 +1400,7 @@ if __name__ == '__main__':
         mobiles[i['uuid']].initializeServices(straightRoute)
         mobiles[i['uuid']].configTTT(args.ttt)
         mobiles[i['uuid']].addLosInfo(LOS, n)
-        mobiles[i['uuid']].setPredictions(period=args.reqPeriod, nOptions=1)
+        mobiles[i['uuid']].setPredictions(period=args.reqPeriod, nOptions=args.nOptions)
 
 
     env.run(until=scenario['simTime'])
