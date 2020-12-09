@@ -999,7 +999,7 @@ class MobileUser(object):
         self.servingBS = None
         self.reassociationFlag = False
         self.kpi['handoverFail'] += 1
-        print('Handover Failure!!!')
+        #print('Handover Failure!!!')
 
         # It seems there is a sync=False here
         self.sync = False
