@@ -7,16 +7,25 @@ from shapely.geometry import Polygon, LineString
 from numpy import mean, hypot, exp
 
 
-def blockageScore(blockers, blockerList, uePos, delta=None):
-    if delta == 1 or delta == None:
+def blockageScore(blockers, blockerList, ue, timeslot, opt=None):
+    if opt == 1 or opt == None:
         delta = lambda x1, y1, x2, y2: 1/hypot(x1-x2, y1-y2)
-    elif delta == 2:
-        delta = lambda x1, y1, x2, y2: exp(-1*np.hypot(x1-x2, y1-y2))
+
+    elif opt == 2:
+        delta = lambda x1, y1, x2, y2, s: exp(-1*hypot(x1-x2, y1-y2))
+
+    elif not callable(opt):
+        print('Error: Not a function or a valid default option given')
+        exit()
+
+    ueNewX = ue['position']['x'] + (ue['speed']['x']/3.6)*(timeslot*1e-3)
+    ueNewY = ue['position']['y'] + (ue['speed']['y']/3.6)*(timeslot*1e-3)
 
     gamma = 0
+    speed = hypot(ue['speed']['x'], ue['speed']['y'])
     for blocker in blockerList:
-        gamma += delta(blocker.centroid.x, uePos[0],
-                blocker.centroid.y, uePos[1])
+        gamma += delta(blocker.centroid.x, blocker.centroid.y,
+                ueNewX, ueNewY, speed)
     return gamma
 
 
@@ -27,15 +36,15 @@ parser.add_argument('-b','--block')
 
 args = parser.parse_args()
 
-seeds = [i for i in range(30)]
+seeds = [0] #[i for i in range(30)]
 
 for s in seeds:
-    print('Actual seed: ', s)
+    #print('Actual seed: ', s)
     filename = args.speed+'/'+args.block+'/'+str(s)
     with open(filename,'r') as jsonfile:
         data = load(jsonfile)
 
-    print('Number of blockers: ', len(data['blockers']))
+    #print('Number of blockers: ', len(data['blockers']))
 
     # Trasform the obstacles in polygons
     blockers = []
@@ -58,8 +67,6 @@ for s in seeds:
             gamma[m].append([])
             listOfBlockers = []
             for t in range(data['scenario']['simTime']):
-                if t%1000 == 0:
-                    print(t)
 
                 gamma[m][n].append(0)
 
@@ -73,9 +80,12 @@ for s in seeds:
                     for b in blockers:
                         if line.intersects(b):
                             listOfBlockers.append(b) if b not in listOfBlockers else listOfBlockers
-                            break
+                            #break
 
-                gamma[m][n][t] = blockageScore(blockers, listOfBlockers, [ueNewX, ueNewY])
+                #gamma[m][n][t] = blockageScore(blockers, listOfBlockers, [ueNewX, ueNewY])
+                gamma[m][n][t] = blockageScore(blockers, listOfBlockers, ue, t, 2)
+                if t%1000 == 0:
+                    print(t, gamma[m][n][t], ueNewX, ueNewY)
 
     with open('gamma/'+args.speed+'/'+args.block+'/'+str(s), 'w') as out:
         try:
