@@ -6,6 +6,7 @@ import argparse
 import json
 import operator
 import sys
+import time
 from collections import OrderedDict
 from itertools import product
 
@@ -406,6 +407,7 @@ class BaseStation(object):
             predictions[self.uuid].append(self.txPower + ue.antennaGain + self.antennaGain - pathloss)
 
         candidates = list(predictions.keys())
+
         #values = list(zip(list(predictions.values())[0], list(predictions.values())[1]))
         values = []
         for t in range(len(list(predictions.values())[0])):
@@ -430,7 +432,8 @@ class BaseStation(object):
                 ### Each time a BS is blocked, there is an opportunity to make handover
                 #print(t, abs(values[t][n] - values[t-1][n]), (10.6 + 9.2*np.log10(distance)))
                 if abs(values[t][n] - values[t-1][n]) >= 0.9*(10.6 + 9.2*np.log10(distance)):
-                    #there is a blockage here
+                    #there is a blockage here and it is new
+                    #if t not in opportunities:
                     if t not in opportunities:
                         opportunities.append(t)
 
@@ -442,7 +445,18 @@ class BaseStation(object):
 
         ### Enumerates all the possible combinations with repetitions among the
         ### BS through all the HO opportunities identified
-        configs = product(candidates, repeat=len(opportunities))
+        configs = [item for item in product(candidates, repeat=len(opportunities)-1)]
+
+        #'''
+        means = []
+        for recv in predictions.values():
+            means.append(np.mean(recv))
+
+        avgPowerThreshold = min(means)#dbm
+        '''
+
+        avgPowerThreshold = np.mean(predictions[self.uuid])#dbm
+        '''
 
         for n, p in enumerate(configs):
             receivedPower = []
@@ -453,20 +467,29 @@ class BaseStation(object):
                         ### The received power per slot of all the HO configurations
                         receivedPower.append(values[t][candidates.index(bs)])
                     begin = end
+
+
+            '''
             if opportunities:
                 #for t in range(opportunities[-1], self.predictionWindow):
                 for t in range(opportunities[-1], min(self.predictionWindow, self.simTime - self.env.now)):
                     receivedPower.append(values[t][candidates.index(p[-1])])
-
+            '''
 
             ### This dict is the struct that stores the HO configs and its
             ### respective received power per slot
+            if len(opportunities) > 7:
+                if np.mean(receivedPower) < avgPowerThreshold:
+                    continue
+
             enumerated[n] = [list(p), receivedPower]
 
         return enumerated, opportunities
+        
 
 
 
+        
     def chooseHandoverConfiguration(self, ue, nOptions, **params):
         #method= 'slot', criterea='power', handoverInterruptionTime = 17):
 
@@ -479,9 +502,16 @@ class BaseStation(object):
             print('Chosen criterea not available')
             exit()
 
+        #h = hpy()
+        #print(h.heap())
+
         configurations, opportunities = self.enumerateHandoverConfigurations(ue, nOptions, self.method)
         #print(opportunities)
-        
+        #print(len(configurations))
+
+        #h = hpy()
+        #print(h.heap())
+
         selected = {}
         evaluation = {}
         #Analyze according wth given critereas
@@ -619,6 +649,7 @@ class BaseStation(object):
                 if candidates[bs]:
                     self.metric['delayMovAvg'][bs].append(max(candidates[bs]))
 
+            #print(self.metric)
 
 
         if self.criterea == 'coverage' or self.criterea=='all':
@@ -801,6 +832,10 @@ class MobileUser(object):
     def measurementEvent(self):
         counter = 0
         while True:
+            #if counter % 50 == 0:
+            #    print(counter)
+            #counter += 1
+
             self.updateListBS()
             # Check if the UE is in sync with the BS
             self.env.process(self.signalQualityCheck())
@@ -813,8 +848,6 @@ class MobileUser(object):
         #if self.servingBS == None and self.listedRSRP[maxRSRP] > self.sensibility:
         self.servingBS = baseStation
         #self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS),0])
-        self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS),
-            self.env.now])
         
         # yields untill the downlink sync is completed
         yield self.env.timeout(
@@ -831,6 +864,8 @@ class MobileUser(object):
 
         # Now, the UE is in sync with the serving BS
         self.sync = True
+        self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS),
+            self.env.now])
 
     def reassociation(self, baseStation):
         self.kpi['reassociation'] += 1
@@ -1006,40 +1041,41 @@ class MobileUser(object):
 
 
     def switchToNewBS(self, targetBS):
-        #print('Switching from %s to %s'%(self.servingBS, targetBS))
-        self.lastBS.append(self.servingBS)
-        self.servingBS = targetBS
-        self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS), self.env.now])
+        if self.sync:
+            #print('Switching from %s to %s'%(self.servingBS, targetBS))
+            self.lastBS.append(self.servingBS)
 
-        # The time gap between the disassociation from the Serving BS to the
-        # target BS is known as handover interruption time (HIT) and it is
-        # the for the UE to get synced with the target BS. There is no data
-        # connection during this time interval, so the UE remains unsynced
-        self.sync = False 
+            # The time gap between the disassociation from the Serving BS to the
+            # target BS is known as handover interruption time (HIT) and it is
+            # the for the UE to get synced with the target BS. There is no data
+            # connection during this time interval, so the UE remains unsynced
+            self.sync = False 
 
-        '''
-        print(self.listBS[self.servingBS].nextSSB, self.listBS[self.servingBS].frameIndex, self.env.now)
-        print(defs.BURST_DURATION)
-        print(self.listBS[self.servingBS].nextSSB + defs.BURST_DURATION  - self.env.now)
-        '''
+            '''
+            print(self.listBS[self.servingBS].nextSSB, self.listBS[self.servingBS].frameIndex, self.env.now)
+            print(defs.BURST_DURATION)
+            print(self.listBS[self.servingBS].nextSSB + defs.BURST_DURATION  - self.env.now)
+            '''
 
-        # yields untill the downlink sync is completed
-        yield self.env.timeout(
-                self.listBS[self.servingBS].nextSSB + defs.BURST_DURATION  - self.env.now
-                )
+            # yields untill the downlink sync is completed
+            yield self.env.timeout(
+                    self.listBS[targetBS].nextSSB + defs.BURST_DURATION  - self.env.now
+                    )
 
-        #print(self.listBS[self.servingBS].nextRach, self.env.now)
+            #print(self.listBS[self.servingBS].nextRach, self.env.now)
 
-        # yields untill the uplink sync is completed
-        yield self.env.timeout(
-                self.listBS[self.servingBS].nextRach + defs.BURST_DURATION  - self.env.now
-                )
+            # yields untill the uplink sync is completed
+            yield self.env.timeout(
+                    self.listBS[targetBS].nextRach + defs.BURST_DURATION  - self.env.now
+                    )
 
-        # yields for the BS association delay
-        yield self.env.timeout(self.listBS[self.servingBS].associationDelay)
+            # yields for the BS association delay
+            yield self.env.timeout(self.listBS[targetBS].associationDelay)
 
-        # Now the UE is up and downlink synced
-        self.sync = True
+            # Now the UE is up and downlink synced
+            self.sync = True
+            self.servingBS = targetBS
+            self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS), self.env.now])
 
 
     # This method schedules the packets transmission
@@ -1088,33 +1124,34 @@ class MobileUser(object):
     def requestPrediction(self):
         while True:
             yield self.env.timeout(self.predictionPeriod)
-            #config = self.listBS[self.servingBS].chooseHandoverConfiguration(self, self.neighbourOptions, criterea=self.criterea)
-            config = self.listBS[self.servingBS].chooseHandoverConfiguration(self, self.neighbourOptions)
-            ### Processing configuration
-            actual = self.listBS[self.servingBS].uuid
-            for bs, t in config:
-                #print(self.env.now, actual, bs, t)
-                ### There is a handover to be made
-                if bs != actual:
-                    self.kpi['handover'] += 1
-                    if bs in self.lastBS:
-                        self.kpi['pingpong'] += 1
+            if self.sync:
+                #config = self.listBS[self.servingBS].chooseHandoverConfiguration(self, self.neighbourOptions, criterea=self.criterea)
+                config = self.listBS[self.servingBS].chooseHandoverConfiguration(self, self.neighbourOptions)
+                ### Processing configuration
+                actual = self.listBS[self.servingBS].uuid
+                for bs, t in config:
+                    #print(self.env.now, actual, bs, t)
+                    ### There is a handover to be made
+                    if bs != actual:
+                        self.kpi['handover'] += 1
+                        if bs in self.lastBS:
+                            self.kpi['pingpong'] += 1
 
-                    actual = bs
-                    if t > 0:
-                        yield self.env.timeout(t)
+                        actual = bs
+                        if t > 0:
+                            yield self.env.timeout(t)
 
 
-                    ### Check whether the UE still has connection with the serving BS
-                    if self.sync:
-                        #print('Switching to %s'%(bs))
-                        self.env.process(self.switchToNewBS(bs))
+                        ### Check whether the UE still has connection with the serving BS
+                        if self.sync:
+                            #print('Switching to %s'%(bs))
+                            self.env.process(self.switchToNewBS(bs))
+                        else:
+                            #print('Xiiii', self.env.now, self.listBS[self.servingBS].uuid, bs)
+                            self.handoverFailure()
+
                     else:
-                        #print('Xiiii', self.env.now, self.listBS[self.servingBS].uuid, bs)
-                        self.handoverFailure()
-
-                else:
-                    continue
+                        continue
 
 
 
