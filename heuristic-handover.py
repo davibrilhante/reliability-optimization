@@ -496,7 +496,7 @@ class BaseStation(object):
 
         stop = time.perf_counter()
         #print(self.env.now, len(configs), stop - start)
-        print(self.metric['delayMovAvg'])
+        #print(self.metric['delayMovAvg'])
 
         return zip(configs[minDelayConfiguration[0]], opportunities[:-1])
         #return enumerated, opportunities
