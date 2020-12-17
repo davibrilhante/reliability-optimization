@@ -453,41 +453,176 @@ class BaseStation(object):
             means.append(np.mean(recv))
 
         avgPowerThreshold = min(means)#dbm
-        '''
 
-        avgPowerThreshold = np.mean(predictions[self.uuid])#dbm
-        '''
+        minDelayConfiguration = []
+
+        maxDelay = {}
+        maxDelay[self.uuid]=[]
+        for bs in self.neighbours.keys():
+            maxDelay[bs]=[]
+
+        start = time.perf_counter()
 
         for n, p in enumerate(configs):
-            receivedPower = []
+            receivedPower = self.configurationReceivedPower(p, predictions, opportunities) 
+
+            cfgAvgDelay, delays = self.delayMovingAverage(p,receivedPower, opportunities, ue)
+
+            if n == 0:
+                minDelayConfiguration = [n, cfgAvgDelay]
+
+                for bs in p:
+                    maxDelay[bs] = delays[bs]
+
+            elif cfgAvgDelay < minDelayConfiguration[1]:
+                minDelayConfiguration = [n, cfgAvgDelay]
+
             for bs in p:
-                begin = 0
-                for end in opportunities[1:]:
-                    for t in range(begin, end):
-                        ### The received power per slot of all the HO configurations
-                        receivedPower.append(values[t][candidates.index(bs)])
-                    begin = end
+                if delays[bs]:
+                    if not maxDelay[bs]:
+                        maxDelay[bs] = delays[bs]
 
+                    elif max(delays[bs]) > max(maxDelay[bs]):
+                        maxDelay[bs] = delays[bs]
 
             '''
-            if opportunities:
-                #for t in range(opportunities[-1], self.predictionWindow):
-                for t in range(opportunities[-1], min(self.predictionWindow, self.simTime - self.env.now)):
-                    receivedPower.append(values[t][candidates.index(p[-1])])
-            '''
-
-            ### This dict is the struct that stores the HO configs and its
-            ### respective received power per slot
-            if len(opportunities) > 7:
-                if np.mean(receivedPower) < avgPowerThreshold:
-                    continue
 
             enumerated[n] = [list(p), receivedPower]
+            '''
 
-        return enumerated, opportunities
+        for bs in list(self.neighbours.keys())+[self.uuid]:
+            if maxDelay[bs]:
+                self.metric['delayMovAvg'][bs].append(max(maxDelay[bs]))
+
+        stop = time.perf_counter()
+        #print(self.env.now, len(configs), stop - start)
+        print(self.metric['delayMovAvg'])
+
+        return zip(configs[minDelayConfiguration[0]], opportunities[:-1])
+        #return enumerated, opportunities
         
 
 
+    def configurationReceivedPower(self, configuration, predictions, opportunities):
+        candidates = list(predictions.keys())
+ 
+        values = []
+        for t in range(len(list(predictions.values())[0])):
+            temp = []
+            for i in candidates:
+                temp.append(predictions[i][t])
+            values.append(tuple(temp))
+ 
+        receivedPower = []
+        for bs in configuration:
+            begin = 0
+            for end in opportunities[1:]:
+                for t in range(begin, end):
+                    ### The received power per slot of all the HO configurations
+                    receivedPower.append(values[t][candidates.index(bs)])
+                begin = end
+ 
+        if opportunities:
+            #for t in range(opportunities[-1], self.predictionWindow):
+            for t in range(opportunities[-1], min(self.predictionWindow, self.simTime - self.env.now)):
+                receivedPower.append(values[t][candidates.index(configuration[-1])])
+ 
+        return receivedPower
+
+
+    def delayMovingAverage(self, configuration, receivedPower, opportunities, ue):
+        #evaluation = []
+        avgDelay = 0
+ 
+        candidates = {}
+        candidates[self.uuid]=[]
+        for bs in self.neighbours.keys():
+            candidates[bs]=[]
+ 
+        counter = 0
+        actual = self.uuid
+        begin = 0
+        handover = False
+ 
+        temp = 0
+        cfgDelay = {}
+        for bs in configuration:
+            cfgDelay[bs] = 0
+
+        for m, (bs, end) in enumerate(zip(configuration, opportunities[1:])):
+            delay = 0
+ 
+            #print(m, bs, begin, end)
+            for pw in receivedPower[begin:end]:
+                if bs != actual and not handover:
+                    delay += self.handoverInterruptionTime
+ 
+                    counter = self.handoverInterruptionTime - 1
+                    handover = True
+                    actual = bs
+                    continue
+ 
+                elif handover and counter != 0:
+                    counter -= 1
+                    continue
+ 
+                elif counter == 0:
+                    handover = False
+ 
+                snr = max(0, pw - self.channel['noisePower'])
+                #print(snr, pw)
+ 
+                if bs != self.uuid:
+                    capacity = self.neighbours[bs].bandwidth*np.log2(1 + snr)
+                else:
+                    capacity = self.bandwidth*np.log2(1 + snr)
+ 
+                if capacity < ue.capacity:
+                    delay += 1
+ 
+            cfgDelay[bs] += delay
+
+            begin = end
+
+
+        #evaluation.append(0)
+        lasts = []
+        for bs in configuration:
+            candidates[bs].append(cfgDelay[bs])
+
+            if len(self.metric['delayMovAvg'][bs]) > self.windowLen:
+                self.metric['delayMovAvg'][bs].pop(0)
+
+            samples = self.metric['delayMovAvg'][bs].copy()
+            samples.append(cfgDelay[bs])
+
+            '''
+            Moving average calc
+
+            EWMA_n = S_n + (1-a)S_n-1 + (1-a)^2 S_n-2 + ... + (1-a)^w S_n-w
+                     ------------------------------------------------------
+                            1 + (1-a) + (1-a)^2 + ... + (1-a)^w
+
+            Temp stores the sum of the moving average of each BS in this configuration
+            '''
+
+            num = 0
+            den = 0
+            for w, val in enumerate(samples):
+                num += ((1-self.alpha)**((len(samples)-1) - w))*val
+                den += ((1-self.alpha)**((len(samples)-1) - w))
+
+
+
+            if bs not in lasts:
+                #evaluation[-1] += num/den
+                avgDelay += num/den
+                lasts.append(bs)
+
+        #return evaluation, candidates
+        return avgDelay, candidates
+
+            
 
         
     def chooseHandoverConfiguration(self, ue, nOptions, **params):
@@ -635,9 +770,13 @@ class BaseStation(object):
                         lasts.append(bs)
                     
                     #temp +=  self.metric['delayMovAvg'][bs]#*(end - begin)/(self.predctionWindow)
+                #print('IN: ', evaluation['AvgDelay'], cfgDelay)
+                #print('OUT:', self.delayMovingAverage(cfg, recvPower, opportunities, ue))
+
                 evaluation['offperiod'].append(offperiod)
 
             #print(evaluation)
+
 
             #selected = [configurations[np.argmin(evaluation)][0], opportunities]
             selected['offperiod'] = zip(configurations[np.argmin(evaluation['offperiod'])][0], opportunities)
@@ -649,7 +788,7 @@ class BaseStation(object):
                 if candidates[bs]:
                     self.metric['delayMovAvg'][bs].append(max(candidates[bs]))
 
-            #print(self.metric)
+            print(self.metric['delayMovAvg'])
 
 
         if self.criterea == 'coverage' or self.criterea=='all':
@@ -1126,7 +1265,9 @@ class MobileUser(object):
             yield self.env.timeout(self.predictionPeriod)
             if self.sync:
                 #config = self.listBS[self.servingBS].chooseHandoverConfiguration(self, self.neighbourOptions, criterea=self.criterea)
-                config = self.listBS[self.servingBS].chooseHandoverConfiguration(self, self.neighbourOptions)
+                #config = self.listBS[self.servingBS].chooseHandoverConfiguration(self, self.neighbourOptions)
+
+                config = self.listBS[self.servingBS].enumerateHandoverConfigurations(self, self.neighbourOptions)
                 ### Processing configuration
                 actual = self.listBS[self.servingBS].uuid
                 for bs, t in config:
