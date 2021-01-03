@@ -11,6 +11,8 @@ from blockage import blockage, blockage2
 from bsplacement import hexagonalbsplacement
 from shapely.geometry import LineString
 
+from compressor import compressor
+
 parser = argparse.ArgumentParser()
 parser.add_argument("-s","--seed", type=int, required=False, default=1)
 parser.add_argument("--vx", type=int, required=False, default=0)
@@ -22,6 +24,8 @@ parser.add_argument("-r","--bsradius", type=int, required=False, default=150)
 parser.add_argument("-d","--uedelay", type=int, required=False, default=2)
 parser.add_argument("-c","--uecapacity", type=float, required=False, default=750e6)
 parser.add_argument("--blockage2", required=False, action='store_true')
+parser.add_argument("--clustered", required=False, nargs=2, 
+        help='Receives the rate and sigma for the daughter clustered process. The parent process should be passed in density')
 
 
 
@@ -33,6 +37,7 @@ np.random.seed(seed)
 
 f = open('inst-4-1-24')
 #f = open('toy2')
+
 lines = f.readlines()
 for i,j in enumerate(lines):
     lines[i] = lines[i].strip()
@@ -131,9 +136,15 @@ if args.blockage2:
     data['blockage'], data['gamma'] = blockage2(density, data['scenario'], data['baseStation'], data['userEquipment'])
 
 elif density > 0:
-    #data['blockage'], data['gamma'] = blockage(density, data['scenario'], data['baseStation'], data['userEquipment'])
-    data['blockers'], data['blockage'] = blockage(density, data['scenario'], 
-                                data['baseStation'], data['userEquipment'], tolerance = 2*bs_radius)
+    if args.clustered:
+        data['blockers'], data['blockage'] = blockage(density, data['scenario'], data['baseStation'], data['userEquipment'], 
+                                    tolerance = 2*bs_radius, clustered=True, daughterRate = float(args.clustered[0]), 
+                                    daughterSigma=float(args.clustered[1]))
+    else:
+        #data['blockage'], data['gamma'] = blockage(density, data['scenario'], data['baseStation'], data['userEquipment'])
+        data['blockers'], data['blockage'] = blockage(density, data['scenario'], data['baseStation'], data['userEquipment'], 
+                                    tolerance = 2*bs_radius)
+
 
 else:
     data['blockage'] = []
@@ -148,6 +159,8 @@ else:
             #    data['blockage'][j][0][i] = 1
 
 #f.close()
+
+compressor(data)
 
 #outname = str(n_BS)+'-'+str(n_UE)+'-'+str(density)+'-'+str(args.vx)+'-'+str(args.vy)+'-'+str(args.seed) #'mobility.json'
 #with open(outname, 'w') as outfile:
