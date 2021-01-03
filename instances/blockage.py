@@ -197,6 +197,86 @@ def blockers_gen(rate, scenario, route, Plot = False, tolerance = 150):
     plt.show()
     return blockers
 
+def clusteredBlockerGen(parentRate : float, daughterRate : float, daughterSigma : float,
+    scenario, route, tolerance = 150, Plot = False):
+
+    '''
+    This function generates unitary area obstacles following a Thomas Clustered
+    Process
+
+
+    '''
+
+    #The blockage rate is given in square meters blocked
+    blockers = {}
+    blockers['objects'] = []
+
+    routeBuffer = MultiPoint([(scenario['boundaries']['xmin'], scenario['boundaries']['ymin']),
+        (scenario['boundaries']['xmin'] + tolerance, scenario['boundaries']['ymin']),
+        (scenario['boundaries']['xmin'], scenario['boundaries']['xmin'] + tolerance),
+        (scenario['boundaries']['xmax'] - tolerance, scenario['boundaries']['ymax']),
+        (scenario['boundaries']['xmax'], scenario['boundaries']['xmax'] - tolerance),
+        (scenario['boundaries']['xmax'], scenario['boundaries']['ymax'])]).convex_hull
+    
+    totalArea = routeBuffer.area
+    
+    nClusters = np.random.poisson(parentRate*totalArea)
+
+    clusterPoints = np.random.poisson(daughterRate, nClusters)
+    totalBlockers = sum(clusterPoints)
+
+    print(nClusters, clusterPoints, totalBlockers)
+
+
+    cluster = 0
+    while cluster < nClusters:
+
+        inside = False
+        while not inside:
+            parentX = np.random.randint(scenario['boundaries']['xmin'],scenario['boundaries']['xmax']) 
+            parentY = np.random.randint(scenario['boundaries']['ymin'],scenario['boundaries']['ymax'])
+
+            point = Point([parentX, parentY])
+
+            inside = routeBuffer.contains(point)
+
+
+        perCluster = 0
+        nPoints = clusterPoints[cluster]
+        cluster += 1
+        while (perCluster < nPoints):
+            centroidX = parentX + np.random.normal(0, daughterSigma) 
+            centroidY = parentY + np.random.normal(0, daughterSigma)
+
+            point = Point([centroidX, centroidY])
+
+            if not (routeBuffer.contains(point)):
+                perCluster += 1
+                continue
+
+            blockers['objects'].append({})
+            blockers['objects'][-1]['nVertices'] = 4 #All objects are quadrilaterals
+
+
+
+            blockers['objects'][-1]['centroid'] = {
+                    'x':centroidX,
+                    'y':centroidY
+                    }
+
+            blockers['objects'][-1]['polygon'] = Polygon([(centroidX - 0.5, centroidY + 0.5),
+                (centroidX + 0.5, centroidY + 0.5),
+                (centroidX + 0.5, centroidY - 0.5),
+                (centroidX - 0.5, centroidY - 0.5)])
+
+            if Plot:
+                x, y = blockers['objects'][-1]['polygon'].exterior.xy
+                plt.plot(x, y, color='red')
+
+
+    plt.show()
+    return blockers
+
 
 def advanceintime(polygon, uex, uey, ue, bs):
     bspoint = Point(bs['position']['x'], bs['position']['y'])
@@ -239,17 +319,31 @@ def advanceintime(polygon, uex, uey, ue, bs):
 
 
 
-def blockage(rate, scenario, baseStations, userEquipments, Filter=1, tolerance = 150, Plot = False):
+#def blockage(rate, scenario, baseStations, userEquipments, Filter=1, tolerance = 150, Plot = False):
+def blockage(rate, scenario, baseStations, userEquipments, **params):
     '''
     ueRoute = LineString([(userEquipments[0]['position']['x'],userEquipments[0]['position']['y']),
             (userEquipments[0]['position']['x'] + (userEquipments[0]['speed']['x']/3.6)*(scenario['simTime']*1e-3),
             userEquipments[0]['position']['y'] + (userEquipments[0]['speed']['y']/3.6)*(scenario['simTime']*1e-3))])
     #'''
 
+    clustered = params.get('clustered', False)
+    Plot = params.get('Plot', False) 
+    Filter = params.get('Filter', 1)
+    tolerance = params.get('tolerance', 150)
+
+
     ueRoute = LineString([(scenario['boundaries']['xmin'], scenario['boundaries']['ymin']), 
         (scenario['boundaries']['xmax'], scenario['boundaries']['ymax'])])
 
-    blockers = blockers_gen(rate, scenario, ueRoute, Plot, tolerance)#Plot)
+    if clustered:
+        daughterRate = params.get('daughterRate')
+        daughterSigma = params.get('daughterSigma')
+        blockers = clusteredBlockerGen(rate, daughterRate, daughterSigma, 
+                                scenario, ueRoute, tolerance, Plot)
+
+    else:
+        blockers = blockers_gen(rate, scenario, ueRoute, Plot, tolerance)#Plot)
 
     blockage = []
     gamma = []
@@ -356,13 +450,25 @@ def blockageScore(blockers, blockerList, uePos, delta=None):
 
     gamma = 0
     for i in blockerList:
-        gamma += delta(blockers['objects'][i]['polygon'].centroid.x, uePos[0], 
-                blockers['objects'][i]['polygon'].centroid.y, uePos[1])
+        gamma += delta(blockers['objects'][i]['polygon'].centroid.x, 
+                blockers['objects'][i]['polygon'].centroid.y, uePos[0], uePos[1])
     return gamma
 
 
-def blockage2(rate, scenario, baseStations, userEquipments, Plot = False, prediction=50):
-    blockers = blockers_gen(rate, scenario,False)#Plot)
+#def blockage2(rate, scenario, baseStations, userEquipments, Plot = False, prediction=50, clustered = False):
+def blockage2(rate, scenario, baseStations, userEquipments, **params):
+
+    clustered = params.get('clustered', False)
+    Plot = params.get('Plot', False) 
+    prediction = params.get('prediction', 50)
+
+    if clustered:
+        daughterRate = params.get('daughterRate')
+        daughterSigma = params.get('daughterSigma')
+        clusteredBlockerGen(rate, daughterRate, daughterSigma, scenario, Plot)
+
+    else:
+        blockers = blockers_gen(rate, scenario,False)#Plot)
 
     blockage = []
     gamma = []
