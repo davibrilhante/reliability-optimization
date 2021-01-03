@@ -7,8 +7,13 @@ from shapely.geometry import Polygon, LineString
 from numpy import mean, hypot, exp
 
 
+<<<<<<< Updated upstream
 def blockageScore(blockers, blockerList, ue, timeslot, opt=None):
     if opt == 1 or opt == None:
+=======
+def blockageScore(blockers, blockerList, ue, delta=None):
+    if delta == 1 or delta == None:
+>>>>>>> Stashed changes
         delta = lambda x1, y1, x2, y2: 1/hypot(x1-x2, y1-y2)
 
     elif opt == 2:
@@ -24,8 +29,13 @@ def blockageScore(blockers, blockerList, ue, timeslot, opt=None):
     gamma = 0
     speed = hypot(ue['speed']['x'], ue['speed']['y'])
     for blocker in blockerList:
+<<<<<<< Updated upstream
         gamma += delta(blocker.centroid.x, blocker.centroid.y,
                 ueNewX, ueNewY, speed)
+=======
+        gamma += delta(blocker.centroid.x, ue['position']['x'],
+                blocker.centroid.y, ue['position']['y'])
+>>>>>>> Stashed changes
     return gamma
 
 
@@ -82,10 +92,16 @@ for s in seeds:
                             listOfBlockers.append(b) if b not in listOfBlockers else listOfBlockers
                             #break
 
+<<<<<<< Updated upstream
                 #gamma[m][n][t] = blockageScore(blockers, listOfBlockers, [ueNewX, ueNewY])
                 gamma[m][n][t] = blockageScore(blockers, listOfBlockers, ue, t, 2)
                 if t%1000 == 0:
                     print(t, gamma[m][n][t], ueNewX, ueNewY)
+=======
+                gamma[m][n][t] = blockageScore(blockers, listOfBlockers, ue)
+                if t % 1000 == 0:
+                    print(t, gamma[m][n][t])
+>>>>>>> Stashed changes
 
     with open('gamma/'+args.speed+'/'+args.block+'/'+str(s), 'w') as out:
         try:
