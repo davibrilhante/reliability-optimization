@@ -2,6 +2,8 @@
 # -*- coding : utf-8 -*-
 
 from json import load, dump
+
+'''
 from argparse import ArgumentParser
 
 parser = ArgumentParser()
@@ -10,6 +12,7 @@ parser.add_argument('-i', '--input', help='input file')
 parser.add_argument('-o', '--output', help='input file')
 
 args = parser.parse_args()
+'''
 
 def compressor(data : dict) -> dict:
     for bs, bsblock in enumerate(data['blockage']):
