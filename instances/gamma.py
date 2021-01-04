@@ -1,19 +1,15 @@
 #! /usr/bin/env python3
 # -*- coding : utf8 -*-
 
-from json import load, dump
+from json import load, dump, dumps
 from argparse import ArgumentParser
 from shapely.geometry import Polygon, LineString
 from numpy import mean, hypot, exp
 
+from decompressor import decompressor
 
-<<<<<<< Updated upstream
 def blockageScore(blockers, blockerList, ue, timeslot, opt=None):
     if opt == 1 or opt == None:
-=======
-def blockageScore(blockers, blockerList, ue, delta=None):
-    if delta == 1 or delta == None:
->>>>>>> Stashed changes
         delta = lambda x1, y1, x2, y2: 1/hypot(x1-x2, y1-y2)
 
     elif opt == 2:
@@ -29,13 +25,8 @@ def blockageScore(blockers, blockerList, ue, delta=None):
     gamma = 0
     speed = hypot(ue['speed']['x'], ue['speed']['y'])
     for blocker in blockerList:
-<<<<<<< Updated upstream
         gamma += delta(blocker.centroid.x, blocker.centroid.y,
                 ueNewX, ueNewY, speed)
-=======
-        gamma += delta(blocker.centroid.x, ue['position']['x'],
-                blocker.centroid.y, ue['position']['y'])
->>>>>>> Stashed changes
     return gamma
 
 
@@ -50,9 +41,11 @@ seeds = [0] #[i for i in range(30)]
 
 for s in seeds:
     #print('Actual seed: ', s)
-    filename = args.speed+'/'+args.block+'/'+str(s)
+    filename = 'out/'+args.speed+'/'+args.block+'/'+str(s)
     with open(filename,'r') as jsonfile:
         data = load(jsonfile)
+
+    decompressor(data)
 
     #print('Number of blockers: ', len(data['blockers']))
 
@@ -92,17 +85,15 @@ for s in seeds:
                             listOfBlockers.append(b) if b not in listOfBlockers else listOfBlockers
                             #break
 
-<<<<<<< Updated upstream
                 #gamma[m][n][t] = blockageScore(blockers, listOfBlockers, [ueNewX, ueNewY])
                 gamma[m][n][t] = blockageScore(blockers, listOfBlockers, ue, t, 2)
+                '''
                 if t%1000 == 0:
                     print(t, gamma[m][n][t], ueNewX, ueNewY)
-=======
-                gamma[m][n][t] = blockageScore(blockers, listOfBlockers, ue)
-                if t % 1000 == 0:
-                    print(t, gamma[m][n][t])
->>>>>>> Stashed changes
-
+                '''
+    y = dumps(gamma)
+    print(y)
+    '''
     with open('gamma/'+args.speed+'/'+args.block+'/'+str(s), 'w') as out:
         try:
             dump(gamma, out)
@@ -110,3 +101,4 @@ for s in seeds:
         except Exception as e:
             print(e)
             exit()
+    '''
