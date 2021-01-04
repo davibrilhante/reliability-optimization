@@ -3,7 +3,6 @@
 
 from json import load, dump
 from argparse import ArgumentParser
-
 '''
 parser = ArgumentParser()
 
@@ -17,34 +16,39 @@ def decompressor(data : dict) -> dict:
     for bs, bsblock in enumerate(data['blockage']):
         for ue, block in enumerate(bsblock):
             temp = []
-            for t, time in enumerate(block):
-                if t % 2 == 1:
-                    start = block[t-1]
-                    stop = time+1
 
-                    for i in range(start, stop):
-                        temp.append(1)
-                else:
-                    if t == 0:
-                        start = 0
-                        stop = time
-                        
-                    else:
-                        start = block[t-1]+1
-                        stop = time
+            if not block:
+                data['blockage'][bs][ue] = [0 for i in range(data['scenario']['simTime'])]
 
-                    for i in range(start,stop):
-                        temp.append(0)
-
-            if len(block) % 2 == 1:
-                final = block[-1]
             else:
-                final = block[-1]+1
-     
-            for i in range(final, data['scenario']['simTime']):
-                temp.append(1 - temp[final-1])
+                for t, time in enumerate(block):
+                    if t % 2 == 1:
+                        start = block[t-1]
+                        stop = time+1
 
-            data['blockage'][bs][ue] = temp
+                        for i in range(start, stop):
+                            temp.append(1)
+                    else:
+                        if t == 0:
+                            start = 0
+                            stop = time
+                            
+                        else:
+                            start = block[t-1]+1
+                            stop = time
+
+                        for i in range(start,stop):
+                            temp.append(0)
+
+                if len(block) % 2 == 1:
+                    final = block[-1]
+                else:
+                    final = block[-1]+1
+         
+                for i in range(final, data['scenario']['simTime']):
+                    temp.append(1 - temp[final-1])
+
+                data['blockage'][bs][ue] = temp
      
     return data
 
