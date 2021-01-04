@@ -198,7 +198,7 @@ def blockers_gen(rate, scenario, route, Plot = False, tolerance = 150):
     return blockers
 
 def clusteredBlockerGen(parentRate : float, daughterRate : float, daughterSigma : float,
-    scenario, route, tolerance = 150, Plot = False):
+    scenario, route, tolerance, Plot):
 
     '''
     This function generates unitary area obstacles following a Thomas Clustered
@@ -225,7 +225,8 @@ def clusteredBlockerGen(parentRate : float, daughterRate : float, daughterSigma 
     clusterPoints = np.random.poisson(daughterRate, nClusters)
     totalBlockers = sum(clusterPoints)
 
-    print(nClusters, clusterPoints, totalBlockers)
+    if Plot:
+        print(nClusters, clusterPoints, totalBlockers)
 
 
     cluster = 0
@@ -250,9 +251,8 @@ def clusteredBlockerGen(parentRate : float, daughterRate : float, daughterSigma 
 
             point = Point([centroidX, centroidY])
 
-            if not (routeBuffer.contains(point)):
-                perCluster += 1
-                continue
+            #if not (routeBuffer.contains(point)):
+            #    continue
 
             blockers['objects'].append({})
             blockers['objects'][-1]['nVertices'] = 4 #All objects are quadrilaterals
@@ -272,6 +272,8 @@ def clusteredBlockerGen(parentRate : float, daughterRate : float, daughterSigma 
             if Plot:
                 x, y = blockers['objects'][-1]['polygon'].exterior.xy
                 plt.plot(x, y, color='red')
+            
+            perCluster += 1
 
 
     plt.show()
