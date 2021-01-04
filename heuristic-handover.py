@@ -21,6 +21,7 @@ import components
 import definitions as defs
 import simpy as sp
 
+from decompressor import decompressor
 
 class BaseStation(object):
     def __init__(self, bsDict, scenario):
@@ -1457,13 +1458,18 @@ class MobileUser(object):
     def printKPI(self):
         self.kpi['uuid'] = self.uuid
         self.kpi['partDelay'] /= self.nPackets
-        #self.kpi['throughput'] = np.mean(self.kpi['throughput'])
+        self.kpi['throughput'] = np.mean(self.kpi['throughput'])
         self.kpi['deliveryRate'] /= self.nPackets
-        #self.kpi['delay'] = np.mean(self.kpi['delay'])
+        self.kpi['delay'] = np.mean(self.kpi['delay'])
+        self.kpi['capacity'] = np.mean(self.kpi['capacity'])
 
         if self.kpi['handover'] > 0:
             self.kpi['pingpong'] /= self.kpi['handover']
             self.kpi['handoverFail'] /= self.kpi['handover']
+        else:
+            self.kpi['pingpong'] = 0
+            self.kpi['handoverFail'] = 0 
+
 
         print(json.dumps(self.kpi, indent=4))        
 
@@ -1531,6 +1537,7 @@ if __name__ == '__main__':
     try:
         with open(args.inputFile) as json_file:
             data = json.load(json_file)
+        decompressor(data)
     except Exception as e:
         print(e)
         print(10)
