@@ -691,13 +691,17 @@ class MobileUser(object):
     def printKPI(self):
         self.kpi['uuid'] = self.uuid
         self.kpi['partDelay'] /= self.nPackets
-        #self.kpi['throughput'] = np.mean(self.kpi['throughput'])
+        self.kpi['throughput'] = np.mean(self.kpi['throughput'])
         self.kpi['deliveryRate'] /= self.nPackets
-        #self.kpi['delay'] = np.mean(self.kpi['delay'])
+        self.kpi['delay'] = np.mean(self.kpi['delay'])
+        self.kpi['capacity'] = np.mean(self.kpi['capacity'])
 
         if self.kpi['handover'] > 0:
             self.kpi['pingpong'] /= self.kpi['handover']
             self.kpi['handoverFail'] /= self.kpi['handover']
+        else:
+            self.kpi['pingpong'] = 0
+            self.kpi['handoverFail'] = 0
 
         print(json.dumps(self.kpi, indent=4))        
 
