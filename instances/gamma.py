@@ -34,6 +34,8 @@ parser = ArgumentParser()
 parser.add_argument('-s','--speed')
 parser.add_argument('-b','--block')
 parser.add_argument('-x','--seed')
+parser.add_argument('-r','--rootdir')
+
 
 #parser.add_argument('-i','--instance')
 
@@ -44,7 +46,7 @@ args = parser.parse_args()
     #print('Actual seed: ', s)
 
 
-filename = 'out/'+args.speed+'/'+args.block+'/'+str(args.seed)
+filename = args.rootdir+'/'+args.speed+'/'+args.block+'/'+str(args.seed)
 try:
     with open(filename,'r') as jsonfile:
         data = load(jsonfile)
