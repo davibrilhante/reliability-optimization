@@ -214,7 +214,8 @@ class MobileUser(object):
                 'capacity' : [],
                 'deliveryRate' : 0,
                 'delay' : [],
-                'association' : []
+                'association' : [],
+                'outofsync' : 0
                 }
 
         self.blockage = {}
@@ -407,6 +408,7 @@ class MobileUser(object):
                 if downcounter == 0:
                     # out of sync!
                     self.sync = False
+                    self.kpi['outofsync'] += 1
 
                     # Need to reassociate with the network
                     self.lastBS.append(self.servingBS)
@@ -490,10 +492,42 @@ class MobileUser(object):
 
 
     def switchToNewBS(self, targetBS):
-        self.lastBS.append(self.servingBS)
-        self.servingBS = targetBS
-        self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS), self.env.now])
-        #Needs to implement the gap between the user is in total sync with new BS
+        if self.sync:
+            #print('Switching from %s to %s'%(self.servingBS, targetBS))
+            self.lastBS.append(self.servingBS)
+         
+            # The time gap between the disassociation from the Serving BS to the
+            # target BS is known as handover interruption time (HIT) and it is
+            # the for the UE to get synced with the target BS. There is no data
+            # connection during this time interval, so the UE remains unsynced
+            self.sync = False
+         
+            '''
+            print(self.listBS[self.servingBS].nextSSB, self.listBS[self.servingBS].frameIndex, self.env.now)
+            print(defs.BURST_DURATION)
+            print(self.listBS[self.servingBS].nextSSB + defs.BURST_DURATION  - self.env.now)
+            '''
+         
+            # yields untill the downlink sync is completed
+            yield self.env.timeout(
+                    self.listBS[targetBS].nextSSB + defs.BURST_DURATION  - self.env.now
+                    )
+         
+            #print(self.listBS[self.servingBS].nextRach, self.env.now)
+         
+            # yields untill the uplink sync is completed
+            yield self.env.timeout(
+                    self.listBS[targetBS].nextRach + defs.BURST_DURATION  - self.env.now
+                    )
+         
+            # yields for the BS association delay
+            yield self.env.timeout(self.listBS[targetBS].associationDelay)
+         
+            # Now the UE is up and downlink synced
+            self.sync = True
+            self.servingBS = targetBS
+            self.kpi['association'].append([list(self.listBS.keys()).index(self.servingBS), self.env.now])
+
 
 
     # This method schedules the packets transmission
