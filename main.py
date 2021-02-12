@@ -115,4 +115,4 @@ if __name__ == '__main__':
     scenario.run(until=scenario.simTime)
 
     for n, i in enumerate(nodes):
-        mobiles[i['uuid']].kpi._print()
+        mobiles[i['uuid']].kpi.printAsDict()
