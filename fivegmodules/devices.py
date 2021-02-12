@@ -6,6 +6,8 @@ from numpy.random import uniform
 from numpy import pi
 import operator
 
+from json import dumps
+
 from fivegmodules.handover import Handover
 from fivegmodules.core import Scenario
 from fivegmodules.core import Channel
@@ -448,7 +450,7 @@ class MobileUser(MeasurementDevice):
                 timer = 0
 
                 # There is a 10 milliseconds tolerance to send a packet
-                while timer < 10:
+                while timer < 10 and self.servingBS != None:
                     if snr > self.snrThreshold or snr > temp:
                         self.kpi.deliveryRate += 1
                         rate = self.scenarioBasestations[self.servingBS].bandwidth*log2(1 + snr)
@@ -483,17 +485,64 @@ class KPI:
         self.nPackets = 0
 
     def _print(self):
+        if self.throughput:
+            meanTrhoughput = mean(self.throughput)
+        else:
+            meandTroughput = 0
+
+        if self.capacity:
+            meanCapacity = mean(self.capacity)
+        else:
+            meanCapacity = 0
+
+        if self.delay:
+            meanDelay = mean(self.delay)
+        else:
+            meanDelay = 0
+
         print('partDelay:', self.partDelay/self.nPackets, 
             '\n handover:',self.handover,
             '\n handoverFail:', self.handoverFail,
             '\n pingpong:',self.pingpong,
             '\n reassociation:', self.reassociation,
-            '\n throughput:', mean(self.throughput),
-            '\n capacity:', mean(self.capacity),
+            '\n throughput:', meanThroughput,
+            '\n capacity:', meanCapacity,
             '\n deliveryRate:',self.deliveryRate/self.nPackets,
-            '\n delay:', mean(self.delay),
+            '\n delay:', meanDelay,
             '\n association:',self.association,
             '\n outofsync:',self.outofsync)
+    
+    def printAsDict(self):
+        if self.throughput:
+            meanThroughput = mean(self.throughput)
+        else:
+            meandThroughput = 0
+
+        if self.capacity:
+            meanCapacity = mean(self.capacity)
+        else:
+            meanCapacity = 0
+
+        if self.delay:
+            meanDelay = mean(self.delay)
+        else:
+            meanDelay = 0
+
+        dictionary = {}
+        
+        dictionary['partDelay'] = self.partDelay/self.nPackets
+        dictionary['handover'] = self.handover
+        dictionary['handoverFail'] = self.handoverFail
+        dictionary['pingpong'] = self.pingpong
+        dictionary['reassociation'] = self.reassociation
+        dictionary['throughput'] = meanThroughput
+        dictionary['capacity'] = meanCapacity
+        dictionary['deliveryRate'] = self.deliveryRate/self.nPackets
+        dictionary['delay'] = meanDelay
+        dictionary['association'] = self.association
+        dictionary['outofsync'] = self.outofsync
+
+        print(dumps(dictionary, indent = 4))
 
 
 class NetworkParameters:
