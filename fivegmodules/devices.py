@@ -166,55 +166,56 @@ class SynchronizationAssessment(SignalAssessmentPolicy):
 
                     if device.servingBS == None:
                         break
- 
-                    if self.qualityOutCounter >= device.networkParameters.N310:
-                        # Start out of sync counter
-                        downcounter -= 1
-                        #print('downcounter',downcounter)
-                        device.T310running = True
-                        yield device.env.timeout(1)
- 
-                    if device.listedRSRP[device.servingBS] < device.networkParameters.qualityOut:
-                        # Saves the number of time slots with low received RSRP                        
-                        self.qualityOutCounter += 1
-                        #print(device.env.now, 'out counter', self.qualityOutCounter, downcounter)
-                        yield device.env.timeout(1)
- 
- 
-                    # The channel is better now and the signal to serving BS
-                    # got greater or equal the "quality in" param
-                    elif device.listedRSRP[device.servingBS] >= device.networkParameters.qualityIn:
-                        self.qualityInCounter += 1
-                        #print(device.env.now, 'in counter', self.qualityInCounter, downcounter)
 
-                        # If downcounter is not triggered, then there is no need 
-                        # to carry on the synchronization assessment
-                        if self.qualityOutCounter < device.networkParameters.N310:
+                    else:
+                        if self.qualityOutCounter >= device.networkParameters.N310:
+                            # Start out of sync counter
+                            downcounter -= 1
+                            #print('downcounter',downcounter)
+                            device.T310running = True
+                            yield device.env.timeout(1)
+     
+                        if device.listedRSRP[device.servingBS] < device.networkParameters.qualityOut:
+                            # Saves the number of time slots with low received RSRP                        
+                            self.qualityOutCounter += 1
+                            #print(device.env.now, 'out counter', self.qualityOutCounter, downcounter)
+                            yield device.env.timeout(1)
+     
+     
+                        # The channel is better now and the signal to serving BS
+                        # got greater or equal the "quality in" param
+                        elif device.listedRSRP[device.servingBS] >= device.networkParameters.qualityIn:
+                            self.qualityInCounter += 1
+                            #print(device.env.now, 'in counter', self.qualityInCounter, downcounter)
+
+                            # If downcounter is not triggered, then there is no need 
+                            # to carry on the synchronization assessment
+                            if self.qualityOutCounter < device.networkParameters.N310:
+                                downcounter -= 1
+                                #print('downcounter',downcounter)
+                                yield device.env.timeout(1)
+     
+                            # The signal power is above quality in for more than
+                            # n311 samples and t310 has not already expired
+                            if self.qualityInCounter >= device.networkParameters.N311:
+                                #Stop out of sync counter 
+                                self.qualityOutCounter = 0
+                                self.qualityInCounter = 0
+                                device.T310running = False
+                                downcounter = device.networkParameters.T310
+                                break
+
+                            else:
+                                #Signal strength is better but the sync still
+                                #unconfirmed by the N311 counter, so T310 continues
+                                downcounter -= 1
+                                yield device.env.timeout(1)
+
+                        # RSRP between quality in and quality out
+                        else:
                             downcounter -= 1
                             #print('downcounter',downcounter)
                             yield device.env.timeout(1)
- 
-                        # The signal power is above quality in for more than
-                        # n311 samples and t310 has not already expired
-                        if self.qualityInCounter >= device.networkParameters.N311:
-                            #Stop out of sync counter 
-                            self.qualityOutCounter = 0
-                            self.qualityInCounter = 0
-                            device.T310running = False
-                            downcounter = device.networkParameters.T310
-                            break
-
-                        else:
-                            #Signal strength is better but the sync still
-                            #unconfirmed by the N311 counter, so T310 continues
-                            downcounter -= 1
-                            yield device.env.timeout(1)
-
-                    # RSRP between quality in and quality out
-                    else:
-                        downcounter -= 1
-                        #print('downcounter',downcounter)
-                        yield device.env.timeout(1)
 
  
                 # T310 expired, the UE is out of sync with the serving BS
