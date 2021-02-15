@@ -175,7 +175,7 @@ class SynchronizationAssessment(SignalAssessmentPolicy):
                             device.T310running = True
                             yield device.env.timeout(1)
      
-                        if device.listedRSRP[device.servingBS] < device.networkParameters.qualityOut:
+                        elif device.listedRSRP[device.servingBS] < device.networkParameters.qualityOut:
                             # Saves the number of time slots with low received RSRP                        
                             self.qualityOutCounter += 1
                             #print(device.env.now, 'out counter', self.qualityOutCounter, downcounter)
