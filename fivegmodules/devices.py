@@ -488,7 +488,7 @@ class KPI:
         if self.throughput:
             meanThroughput = mean(self.throughput)
         else:
-            meandThroughput = 0
+            meanThroughput = 0
 
         if self.capacity:
             meanCapacity = mean(self.capacity)
@@ -516,7 +516,7 @@ class KPI:
         if self.throughput:
             meanThroughput = mean(self.throughput)
         else:
-            meandThroughput = 0
+            meanThroughput = 0
 
         if self.capacity:
             meanCapacity = mean(self.capacity)
