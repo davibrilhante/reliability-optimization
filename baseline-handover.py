@@ -21,8 +21,13 @@ class BaseStation(object):
     def __init__(self, bsDict, scenario):
         self.x = bsDict['position']['x']
         self.y = bsDict['position']['y']
+        self.id = bsDict['uuid']
+        self.uuid = bsDict['uuid']
         self.frequency = bsDict['frequency']
         self.env = scenario.env
+        self.channel = scenario.channel
+        self.simTime = scenario.simTime
+        self.range = 150
 
         self.txPower = bsDict['txPower']
         self.antennaGain = 10 #### STUB!!!
@@ -33,7 +38,7 @@ class BaseStation(object):
         self.associatedUsers = []
         self.inRangeUsers = []
         self.frameIndex = 0
-        self.ssbIndex = 0
+        self.ssbIndex = 1
 
         self.onSSB = False
         self.nextSSB = 0
@@ -43,43 +48,50 @@ class BaseStation(object):
         self.numerology = components.numerology(bsDict['subcarrierSpacing']/1e3)
         self.slotsPerSubframe = bsDict['subcarrierSpacing']/(15*1e3)
 
+        self.associationDelay = 10
+
 
     def burstSet(self, burstDuration, burstPeriod, rachPeriod):
-        '''
+        '''  
         Schedules a Burst Set event with burstDuration (in seconds)
         each burstPeriod (in seconds), except when a defs.RACH Opportunity
         is scheduled.
-
+             
         The counter verifies if its time of a burst set or a defs.RACH Opportunity
-
+             
         burstDuration = 5 milliseconds
         burstPeriod = 20 milliseconds
         rachPeriod = 40 milliseconds
-        '''
+        '''  
         while True:
             self.availableSlots = self.numerology['ssblocks']
             if (self.frameIndex % (rachPeriod/defs.FRAME_DURATION) != 0) and (self.frameIndex != 1):
-                #print('A new burst set is starting at %d and it is the %d ss burst in %d frame' % 
-                #        (self.env.now, self.ssbIndex, self.frameIndex))
-
+                '''print('A new burst set is starting at %d and it is the %d ss burst in %d frame' % 
+                        (self.env.now, self.ssbIndex, self.frameIndex))'''
+             
                 ### Flagging that there is an SSB happening
                 self.onSSB = True
+             
+                ### Verifies whether the next SSB is a RACH
+                if ((self.frameIndex + (burstPeriod/defs.FRAME_DURATION))%(rachPeriod/defs.FRAME_DURATION) != 0):
+                    ### No, the next is not a RACH
+                    self.nextSSB = self.env.now + (burstPeriod - burstDuration)
+                else:
+                    ### Yes, the next is a RACH
+                    self.nextSSB = self.env.now + (2*burstPeriod - burstDuration)
+                    #print('Next one is a RACH, next SSB in %d #%d' % (self.nextSSB, self.ssbIndex))
+             
                 yield self.env.timeout(burstDuration)
                 #print('The burst set has finished at %d' % self.env.now)
                 #self.calcNetworkCapacity()
-
+             
                 ### Flagging that the SSB is finished
                 self.onSSB = False
-
-                if ((self.frameIndex + (burstPeriod/defs.FRAME_DURATION))/
-                        (rachPeriod/defs.FRAME_DURATION) != 0):
-                    self.nextSSB = self.env.now + (burstPeriod - burstDuration)
-                else:
-                    self.nextSSB = self.env.now + (rachPeriod - burstDuration)
-
+             
                 yield self.env.timeout(burstPeriod - burstDuration)
-
+             
             else:
+                ### The previous was a RACH
                 yield self.env.timeout(burstPeriod)
 
     def updateFrame(self):
@@ -295,8 +307,8 @@ class MobileUser(object):
         while True:
             self.updateListBS()
             # Check if the UE is in sync with the BS
-            self.env.process(self.signalQualityCheck())
             self.measurementCheck()
+            self.env.process(self.signalQualityCheck())
             yield self.env.timeout(self.timeToMeasure)
 
 
@@ -314,6 +326,7 @@ class MobileUser(object):
 
         # Now, the UE is in sync with the serving BS
         self.sync = True
+        print('Association complete!', self.env.now)
 
     def reassociation(self, baseStation):
         self.kpi['reassociation'] += 1
@@ -335,7 +348,7 @@ class MobileUser(object):
                 self.env.process(self.firstAssociation(maxRSRP))
         
 
-        elif self.servingBS != None:
+        elif self.servingBS != None and self.sync:
             # Check if the UE is in sync with the BS
             #self.env.process(self.signalQualityCheck())
 
@@ -409,6 +422,7 @@ class MobileUser(object):
                     # out of sync!
                     self.sync = False
                     self.kpi['outofsync'] += 1
+                    print(self.env.now)
 
                     # Need to reassociate with the network
                     self.lastBS.append(self.servingBS)
@@ -421,6 +435,8 @@ class MobileUser(object):
         # The user is already out of sync!
         else:
             self.sync = False
+            self.kpi['outofsync'] += 1
+            print(self.env.now)
 
 
 
@@ -450,6 +466,7 @@ class MobileUser(object):
                         if self.listedRSRP[targetBS] - self.HOHysteresis <= self.listedRSRP[self.servingBS] + self.HOOffset:
                             break
                     else:
+                        # Too late handover, user got out-sync in the middle of it
                         self.handoverFailure()
                         break
 
@@ -482,13 +499,17 @@ class MobileUser(object):
                     self.kpi['pingpong'] += 1
 
                 # Switch to the new BS
-                self.switchToNewBS(targetBS)
+                self.env.process(self.switchToNewBS(targetBS))
 
     def handoverFailure(self):
         self.lastBS.append(self.servingBS)
         self.servingBS = None
         self.reassociationFlag = False
         self.kpi['handoverFail'] += 1
+        #print('Handover Failure!!!')
+
+        # It seems there is a sync=False here
+        self.sync = False
 
 
     def switchToNewBS(self, targetBS):
@@ -501,12 +522,12 @@ class MobileUser(object):
             # the for the UE to get synced with the target BS. There is no data
             # connection during this time interval, so the UE remains unsynced
             self.sync = False
-         
+            
             '''
             print(self.listBS[self.servingBS].nextSSB, self.listBS[self.servingBS].frameIndex, self.env.now)
             print(defs.BURST_DURATION)
             print(self.listBS[self.servingBS].nextSSB + defs.BURST_DURATION  - self.env.now)
-            '''
+            #'''
          
             # yields untill the downlink sync is completed
             yield self.env.timeout(
@@ -514,7 +535,6 @@ class MobileUser(object):
                     )
          
             #print(self.listBS[self.servingBS].nextRach, self.env.now)
-         
             # yields untill the uplink sync is completed
             yield self.env.timeout(
                     self.listBS[targetBS].nextRach + defs.BURST_DURATION  - self.env.now

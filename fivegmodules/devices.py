@@ -486,9 +486,9 @@ class KPI:
 
     def _print(self):
         if self.throughput:
-            meanTrhoughput = mean(self.throughput)
+            meanThroughput = mean(self.throughput)
         else:
-            meandTroughput = 0
+            meandThroughput = 0
 
         if self.capacity:
             meanCapacity = mean(self.capacity)
