@@ -14,6 +14,8 @@ from fivegmodules.core import Channel
 from fivegmodules.core import WirelessDevice
 from fivegmodules.mobility import MobilityModel
 from fivegmodules.mobility import StraightRoute
+from fivegmodules.plot import PlotRSRP
+from fivegmodules.plot import PlotSINR
 
 
 __all__ = ['WirelessDevice','BaseStation', 'MeasurementDevice', 'MobileUser', 
@@ -222,7 +224,12 @@ class SynchronizationAssessment(SignalAssessmentPolicy):
                 if downcounter == 0:
                     # out of sync!
                     device.sync = False
-                    device.kpi.outofsync += 1
+                    try:
+                        #device.kpi.outofsync += 1
+                        device.kpi.outofsync.append(device.env.now)
+                    except:
+                        device.kpi.outofsync = [device.env.now]
+                    #device.kpi.outofsync += 1
  
                     # Need to reassociate with the network
                     device.lastBS.append(device.servingBS)
@@ -237,7 +244,11 @@ class SynchronizationAssessment(SignalAssessmentPolicy):
         # The user is already out of sync!
         else:
             device.sync = False
-            device.kpi.outofsync += 1
+            try:
+                #device.kpi.outofsync += 1
+                device.kpi.outofsync.append(device.env.now)
+            except:
+                device.kpi.outofsync = [device.env.now]
             #print(device.env.now)
 
 class HandoverAssessment(SignalAssessmentPolicy):
@@ -285,6 +296,9 @@ class MeasurementDevice(WirelessDevice):
         self.measOccurring = False
         self.T310running = False
         self.triggerTime = 0
+
+        self.plotRSRP = PlotRSRP(self)
+        self.plotSINR = PlotSINR(self)
 
 
     # At each time to measure, the UE updates the list of BS and check
@@ -400,12 +414,25 @@ class MeasurementDevice(WirelessDevice):
             RSRP = (bs.txPower + bs.antenna.gain(angle=angleBSUE, direction= directionBSUE) 
                     + self.antenna.gain(angle=angleUEBS, direction=directionUEBS) 
                     - self.channel.pathLossCalc(reference, exponent, 
-                    distance, shadowingStdev=stdev))
+                    distance, shadowingStdev=stdev, fadingSample = self.env.now))
              
-            if RSRP > self.sensibility:
-                self.listedRSRP[uuid] = RSRP
-            else:
-                self.listedRSRP[uuid] = float('-inf') #None
+            try:
+                oldRSRP = self.listedRSRP[uuid]
+                filterCoeff = self.networkParameters.filterA()
+                self.listedRSRP[uuid] = (1-filterCoeff)*oldRSRP + filterCoeff*RSRP
+
+            except KeyError:
+                if RSRP > self.sensibility:
+                    self.listedRSRP[uuid] = RSRP
+                else:
+                    self.listedRSRP[uuid] = float('-inf') #None
+
+        try:
+            value =  self.listedRSRP[self.servingBS]
+        except KeyError:
+            value = 0
+        self.plotRSRP.collectKpi(value)
+        self.plotSINR.collectKpi()
 
 
 
@@ -440,18 +467,19 @@ class MobileUser(MeasurementDevice):
             self.kpi.nPackets = len(self.packetArrivals)
 
         for t in self.packetArrivals:
+            packetSent = False
             yield self.env.timeout(t - self.env.now)
 
             # The packet will be sent if and only if the UE is in sync with the
             # serving BS and, of course, if it is associated whatsoever
-            if self.sync and self.servingBS != None:
+            if self.sync or self.handover.handoverExecutionFlag: #and self.servingBS != None:
                 #snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
                 snr = max(0, self.servingBSSINR())
                 temp = self.snrThreshold
                 timer = 0
 
                 # There is a 10 milliseconds tolerance to send a packet
-                while timer < 10 and self.servingBS != None:
+                while timer < self.networkParameters.retryTimer and self.servingBS != None:
                     if snr > self.snrThreshold or snr > temp:
                         self.kpi.deliveryRate += 1
                         rate = self.scenarioBasestations[self.servingBS].bandwidth*log2(1 + snr)
@@ -460,11 +488,16 @@ class MobileUser(MeasurementDevice):
                         if self.kpi.delay[-1] < self.delay:
                             self.kpi.partDelay += 1
 
+                        packetSent = True
+
                         break
                     else:
                         temp *= 0.9
                         yield self.env.timeout(1)
                         timer += 1
+
+                if not packetSent:
+                    self.kpi.delay.append(self.env.now - t)
 
 class PredictionBaseStation(BaseStation):
     pass
@@ -484,6 +517,7 @@ class KPI:
         self.association = []
         self.outofsync = 0
         self.nPackets = 0
+        self.log = {}
 
     def _print(self):
         if self.throughput:
@@ -511,7 +545,8 @@ class KPI:
             '\n deliveryRate:',self.deliveryRate/self.nPackets,
             '\n delay:', meanDelay,
             '\n association:',self.association,
-            '\n outofsync:',self.outofsync)
+            '\n outofsync:',self.outofsync,
+            '\n Log:',self.log)
     
     def printAsDict(self):
         if self.throughput:
@@ -542,6 +577,7 @@ class KPI:
         dictionary['delay'] = meanDelay
         dictionary['association'] = self.association
         dictionary['outofsync'] = self.outofsync
+        dictionary['log'] = self.log
 
         print(dumps(dictionary, indent = 4))
 
@@ -567,6 +603,13 @@ class NetworkParameters:
         self.SSBurstPeriod = 20
         self.RACHPeriod = 40
         self.SSBurstDuration = 5
+
+        self.retryTimer = 10
+
+        self.filterK = 4
+
+    def filterA(self):
+        return (1/2**(self.filterK/4))
 
 class Numerology:
     def __init__(self, subcarrierspacing, networkParameters):
