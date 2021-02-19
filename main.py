@@ -51,7 +51,6 @@ if __name__ == '__main__':
 
     #scenario = data['scenario']
     #channel = data['channel']
-    LOS = data['blockage']
     for p in data['baseStation']:
         p['sensibility'] = -120 #dB m
         network.append(p)
@@ -65,6 +64,8 @@ if __name__ == '__main__':
         #ue['nPackets'] = int(scenario['simTime']/500) - 1
         ue['capacity'] = 750e6 #Bits per second
 
+    #LOS = np.ones((len(network), len(nodes), data['scenario']['simTime']), dtype = np.int8)
+    LOS = data['blockage']
 
     channel = AWGNChannel()
     channel.noisePower = data['channel']['noisePower']
@@ -114,5 +115,8 @@ if __name__ == '__main__':
 
     scenario.run(until=scenario.simTime)
 
+
     for n, i in enumerate(nodes):
         mobiles[i['uuid']].kpi.printAsDict()
+        #mobiles[i['uuid']].plotRSRP.plot()
+        #mobiles[i['uuid']].plotSINR.plot()

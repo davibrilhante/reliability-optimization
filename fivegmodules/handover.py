@@ -3,6 +3,9 @@ import fivegmodules.core
 __all__ = ['Handover', 'A3Handover', 'PredictionHandover']
 
 class Handover:
+    def __init__(self):
+        pass
+
     def triggerMeasurement(self, device, targetBS):
         raise NotImplementedError
  
@@ -16,12 +19,16 @@ class Handover:
         raise NotImplementedError
 
 class A3Handover(Handover):
+    def __init__(self):
+        super(A3Handover, self).__init__()
+        self.handoverExecutionFlag = False
+        self.handoverPreparationFlag = False
  
     def triggerMeasurement(self, device, targetBS):
         counterTTT = 0
                    
         if not device.sync:
-            self.handoverFailure()
+            self.handoverFailure(device)
                    
         # First, check if another measurement is not in progress
         elif not device.measOccurring:
@@ -57,10 +64,22 @@ class A3Handover(Handover):
                                 + device.networkParameters.handoverOffset
                                 )
                             ):
+                            # Too earlier handover attempt, might have been just
+                            # a channel fluctuation
+                            try:
+                                device.kpi.log['HOF000'] += 1
+                            except KeyError:
+                                device.kpi.log['HOF000'] = 1
+
+                            #self.handoverFailure(device)
                             break
                     else:
                         # Too late handover, user got out-sync in the middle of it
-                        print('Handover failure call 1')
+                        try:
+                            device.kpi.log['HOF001'] += 1
+                        except KeyError:
+                            device.kpi.log['HOF001'] = 1
+
                         self.handoverFailure(device)
                         break
 
@@ -71,7 +90,10 @@ class A3Handover(Handover):
                         self.sendMeasurementReport(device, targetBS)
  
                     else:
-                        print('Handover failure call 2')
+                        try:
+                            device.kpi.log['HOF002'] += 1
+                        except KeyError:
+                            device.kpi.log['HOF002'] = 1
                         self.handoverFailure(device)
 
                 device.measOccurring = False
@@ -99,7 +121,6 @@ class A3Handover(Handover):
         device.servingBS = None
         device.reassociationFlag = False
         device.kpi.handoverFail += 1
-        print('Handover Failure!!!')
  
         # It seems there is a sync=False here
         device.sync = False
@@ -108,14 +129,12 @@ class A3Handover(Handover):
         if device.sync:
             #print('Switching from %s to %s'%(self.servingBS, targetBS))
             device.lastBS.append(device.servingBS)
-
-            # The time gap between the disassociation from the Serving BS to the
-            # target BS is known as handover interruption time (HIT) and it is
-            # the for the UE to get synced with the target BS. There is no data
-            # connection during this time interval, so the UE remains unsynced
+            self.handoverPreparationFlag = True
 
             # yields for the BS association delay/HO preparation time
             yield device.env.timeout(device.scenarioBasestations[targetBS].associationDelay)
+
+            self.handoverPreparationFlag = False
 
             '''
             print(self.listBS[self.servingBS].nextSSB, self.listBS[self.servingBS].frameIndex, self.env.now)
@@ -133,8 +152,13 @@ class A3Handover(Handover):
             # sync with target BS
             if device.sync and not device.T310running:
                 device.sync = False
+                self.handoverExecutionFlag = True
 
-                #print(self.listBS[self.servingBS].nextRach, self.env.now)
+                # The time gap between the disassociation from the Serving BS to the
+                # target BS is known as handover interruption time (HIT) and it is
+                # the for the UE to get synced with the target BS. There is no data
+                # connection during this time interval, so the UE remains unsynced
+
                 # yields untill the uplink sync is completed
                 yield device.env.timeout(
                         device.scenarioBasestations[targetBS].nextRach + 
@@ -142,6 +166,8 @@ class A3Handover(Handover):
                         )
 
 
+                # Checks whether the HO Complete will be successfully sent/received 
+                # If not, the handover fails
                 if device.listedRSRP[targetBS] > device.networkParameters.qualityOut: 
                     # Now the UE is up and downlink synced
                     device.sync = True
@@ -149,12 +175,21 @@ class A3Handover(Handover):
                     device.kpi.association.append(
                         [list(device.scenarioBasestations.keys()).index(device.servingBS), device.env.now])
                 else:
-                    print('Handover Failure call 3')
+                    # Handover fail due to not received handover complete
+                    try:
+                        device.kpi.log['HOF004'] += 1
+                    except KeyError:
+                        device.kpi.log['HOF004'] = 1
                     self.handoverFailure(device)
 
-            # Failed to receive handover command
+                self.handoverExecutionFlag = False
+
+            # Failed to receive Handover Command
             else:
-                print('Handover Failure call 4')
+                try:
+                    device.kpi.log['HOF003'] += 1
+                except KeyError:
+                    device.kpi.log['HOF003'] = 1
                 self.handoverFailure(device)
 
 
