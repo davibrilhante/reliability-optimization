@@ -2,8 +2,9 @@ from numpy import hypot
 from numpy import log10
 from numpy import log2
 from numpy import mean
-from numpy.random import uniform
+from numpy.random import normal, uniform, choice
 from numpy import pi
+from numpy import exp
 import operator
 
 from json import dumps
@@ -16,6 +17,7 @@ from fivegmodules.mobility import MobilityModel
 from fivegmodules.mobility import StraightRoute
 from fivegmodules.plot import PlotRSRP
 from fivegmodules.plot import PlotSINR
+from fivegmodules.miscellaneous import DataPacket
 
 
 __all__ = ['WirelessDevice','BaseStation', 'MeasurementDevice', 'MobileUser', 
@@ -42,7 +44,16 @@ class BaseStation(WirelessDevice):
 
         self.networkParameters = None
         self.numerology = None
-        self.associationDelay = 10
+        self.associationDelay = 15 # milliseconds (time to process handover decision)
+        self.admissionControlDelay = 20 #milliseconds
+
+
+        # Downlink proportion in relation to the data frame duration
+        self.channelProportion = 0.5
+        self.onDownlink = False
+        self.downlinkDuration = 0 
+        self.onUplink = False
+        self.uplinkDuration = 0 
 
     def initializeServices(self, **params):
         self.env.process(self.updateFrame())
@@ -59,6 +70,11 @@ class BaseStation(WirelessDevice):
                                             self.networkParameters.RACHPeriod
                                             )
                         )
+
+        self.downlinkDuration = (self.networkParameters.SSBurstPeriod 
+                - self.networkParameters.SSBurstDuration)*self.channelProportion
+        self.uplinkDuration = (self.networkParameters.SSBurstPeriod   
+                - self.networkParameters.SSBurstDuration)*(1 - self.channelProportion)
 
 
     def burstSet(self, burstDuration, burstPeriod, rachPeriod):
@@ -90,10 +106,10 @@ class BaseStation(WirelessDevice):
                         %(rachPeriod/self.networkParameters.frameDuration) != 0
                     ):
                     ### No, the next is not a RACH
-                    self.nextSSB = self.env.now + (burstPeriod - burstDuration)
+                    self.nextSSB = self.env.now + burstPeriod #(burstPeriod - burstDuration)
                 else:
                     ### Yes, the next is a RACH
-                    self.nextSSB = self.env.now + (2*burstPeriod - burstDuration)
+                    self.nextSSB = self.env.now + 2*burstPeriod #(2*burstPeriod - burstDuration)
                     #print('Next one is a RACH, next SSB in %d #%d' % (self.nextSSB, self.ssbIndex))
 
                 yield self.env.timeout(burstDuration)
@@ -102,6 +118,17 @@ class BaseStation(WirelessDevice):
                 self.onSSB = False
  
                 yield self.env.timeout(burstPeriod - burstDuration)
+
+                '''
+                ### Divides the lasting frame time in Downlink and Uplink Channels
+                self.onDownlink = True
+                yield self.env.timeout(self.downlinkDuration)
+                self.onDownlink = False
+                self.onUplink = True
+                yield self.env.timeout(self.uplinkDuration)
+                self.onUplink = False
+                '''
+
  
             else:
                 ### The previous was a RACH
@@ -137,15 +164,47 @@ class BaseStation(WirelessDevice):
 
                 ## Flagging a new RACH opportunity
                 self.onRach = True
+                self.nextRach = self.env.now + rachPeriod #(rachPeriod - rachDuration)
                 yield self.env.timeout(rachDuration)
                 #print('The rach opportunity  has finished at %d' % self.env.now)
 
                 ### Flagging the end of a RACH opportunity
                 self.onRach = False
-                self.nextRach = self.env.now + (rachPeriod - rachDuration)
 
                 yield self.env.timeout(rachPeriod - rachDuration)
 
+    def receivePacket(self, transmitter, packet):
+        '''
+        mcsReqSinr = 20
+        diff = min(mcsReqSinr - transmitter.servingBSSINR(), 5)
+
+        errorProb = 10**(min(diff - 5, 0))
+
+        error = choice([0, 1], p=[errorProb, 1 - errorProb])
+        '''
+
+        #if not error: #
+        if transmitter.servingBSSINR() > self.sensibility:
+            #print('Packet Received', packet.packetId)
+            transmitter.kpi.deliveryRate += 1
+
+            delay = self.env.now - packet.arrival
+            transmitter.kpi.delay.append(self.env.now - packet.arrival)
+
+            wholeData = packet.payloadLen + self.networkParameters.uplinkOverhead
+            SINR = 10**(transmitter.servingBSSINR()/10)
+            capacity = self.bandwidth*log2(1 + SINR)
+            transmissionTime = wholeData/capacity
+            throughput = packet.payloadLen/transmissionTime
+            transmitter.kpi.throughput.append(throughput)
+
+            if delay < transmitter.delay:
+                transmitter.kpi.partDelay += 1
+
+        '''
+        else:
+            print('Packet Lost', packet.packetId)
+        '''
 
 
 class SignalAssessmentPolicy:
@@ -241,6 +300,7 @@ class SynchronizationAssessment(SignalAssessmentPolicy):
                 self.qualityOutCounter = 0
                 self.qualityInCounter = 0
  
+        '''
         # The user is already out of sync!
         else:
             device.sync = False
@@ -250,6 +310,7 @@ class SynchronizationAssessment(SignalAssessmentPolicy):
             except:
                 device.kpi.outofsync = [device.env.now]
             #print(device.env.now)
+        '''
 
 class HandoverAssessment(SignalAssessmentPolicy):
     def signalAssessment(self, device):
@@ -260,15 +321,16 @@ class HandoverAssessment(SignalAssessmentPolicy):
         ### FIRST TIME USER ASSOCIATON
         if device.servingBS == None and device.listedRSRP[maxRSRP] > device.sensibility:
             if device.lastBS:
-                device.reassociation(maxRSRP)
+                #device.reassociation(maxRSRP)
+                device.env.process(device.connectionReestablishment(maxRSRP))
             #else:
             #    device.env.process(device.firstAssociation(maxRSRP))
  
  
         elif device.servingBS != None and device.sync:
-            snr = device.listedRSRP[device.servingBS] - device.channel.noisePower
+            snr = 10**((device.listedRSRP[device.servingBS] - device.channel[device.servingBS].noisePower)/10)
             #print(self.env.now, maxRSRP, self.listedRSRP[maxRSRP], self.servingBS, self.listedRSRP[self.servingBS], snr)
-            rate = device.scenarioBasestations[device.servingBS].bandwidth*log2(1 + max(snr,0))
+            rate = device.scenarioBasestations[device.servingBS].bandwidth*log2(1 + snr)
             device.kpi.capacity.append(rate)
  
             # This is the condition trigger a handover
@@ -288,7 +350,11 @@ class MeasurementDevice(WirelessDevice):
         self.lastBS = []
 
         self.sync = False
+        self.reassociationFlag = False
         self.handover = None
+        self.handoverCommandProcDelay = 15 #milliseconds
+        self.freqReconfigDelay = 20 #milliseconds
+        
         self.syncAssessment = SynchronizationAssessment()
         self.bsAssessment = HandoverAssessment()
         self.kpi = KPI() 
@@ -337,27 +403,36 @@ class MeasurementDevice(WirelessDevice):
             
             if self.listedRSRP[baseStation] > self.networkParameters.qualityOut: 
                 # Now, the UE is in sync with the serving BS
+                yield self.env.timeout(3*self.networkParameters.RRCMsgTransmissionDelay)
+
                 self.sync = True
                 self.servingBS = baseStation
                 self.kpi.association.append([list(self.scenarioBasestations.keys()).index(self.servingBS),
                                                 self.env.now])
                 #print('Association complete!', self.env.now)
+                if self.reassociationFlag:
+                    self.reassociationFlag = False
+        #print('After', self.sync, self.env.now)
 
-    def reassociation(self, baseStation):
-        self.kpi.reassociation += 1
-        self.reassociationFlag = True
-        self.env.process(self.firstAssociation(baseStation))
+    def connectionReestablishment(self, baseStation):
+        if not self.reassociationFlag:
+            #print('Before', self.sync, self.env.now)
+            self.kpi.reassociation += 1
+            self.reassociationFlag = True
+            
+            yield self.env.timeout(3*self.networkParameters.RRCMsgTransmissionDelay)
+
+            yield self.env.process(self.firstAssociation(baseStation))
 
     def servingBSSINR(self):
         interference = 0
+        servingBSPower = 0
 
         if self.servingBS == None:
             return 0
 
         else:
             for uuid, bs in self.scenarioBasestations.items():
-                if uuid == self.servingBS:
-                    continue
 
                 distance = self.calcDist(bs) 
 
@@ -372,17 +447,32 @@ class MeasurementDevice(WirelessDevice):
                     exponent = 2.92
                     stdev = 8.7
 
-                directionBSUE = uniform(0, 2*pi)
-                angleBSUE = bs.calcAngle(self)
-                directionUEBS = self.calcAngle(self.scenarioBasestations[self.servingBS])
-                angleUEBS = self.calcAngle(bs)
 
-                interference += 10**((bs.txPower + bs.antenna.gain(angle=angleBSUE, direction= directionBSUE) 
-                        + self.antenna.gain(angle=angleUEBS, direction=directionUEBS) 
-                        - self.channel.pathLossCalc(reference, exponent, 
-                        distance, shadowingStdev=stdev))/10)
+                if uuid == self.servingBS:
+                    directionBSUE = bs.calcAngle(self)
+                    angleBSUE = directionBSUE
+                    directionUEBS = self.calcAngle(bs)
+                    angleUEBS = directionUEBS
 
-            noisePlusInterference = 10*log10(10**(self.channel.noisePower/10) + interference)
+                    servingBSPower = (bs.txPower + bs.antenna.gain(angle=angleBSUE, direction= directionBSUE)
+                            + self.antenna.gain(angle=angleUEBS, direction=directionUEBS)
+                            - self.channel[uuid].pathLossCalc(reference, exponent,
+                            distance, shadowingStdev=stdev))
+
+                else:
+                    directionBSUE = uniform(0, 2*pi)
+                    angleBSUE = bs.calcAngle(self)
+                    directionUEBS = self.calcAngle(self.scenarioBasestations[self.servingBS])
+                    angleUEBS = self.calcAngle(bs)
+
+                    interference += 10**((bs.txPower + bs.antenna.gain(angle=angleBSUE, direction= directionBSUE) 
+                            + self.antenna.gain(angle=angleUEBS, direction=directionUEBS) 
+                            - self.channel[uuid].pathLossCalc(reference, exponent, 
+                            distance, shadowingStdev=stdev))/10)
+
+
+            noisePlusInterference = 10*log10(10**(self.channel[uuid].noisePower/10) + interference)
+
             SINR = self.listedRSRP[self.servingBS] - noisePlusInterference
             return SINR
 
@@ -413,7 +503,7 @@ class MeasurementDevice(WirelessDevice):
 
             RSRP = (bs.txPower + bs.antenna.gain(angle=angleBSUE, direction= directionBSUE) 
                     + self.antenna.gain(angle=angleUEBS, direction=directionUEBS) 
-                    - self.channel.pathLossCalc(reference, exponent, 
+                    - self.channel[uuid].pathLossCalc(reference, exponent, 
                     distance, shadowingStdev=stdev, fadingSample = self.env.now))
              
             try:
@@ -452,11 +542,11 @@ class MobileUser(MeasurementDevice):
         self.env.process(self.measurementEvent())
         self.env.process(self.sendingPackets())
 
-        doppler = hypot(self.Vx, self.Vy)/self.env.wavelength
-        self.channel.generateRayleighFading(doppler,self.env.simTime)
+        #doppler = hypot(self.Vx, self.Vy)/self.env.wavelength
+        #self.channel.generateRayleighFading(doppler,self.env.simTime)
 
-        self.channel.switchShadowing = True
-        self.channel.switchFading = True
+        #self.channel.switchShadowing = True
+        #self.channel.switchFading = True
 
         if issubclass(self.mobilityModel.__class__, MobilityModel):
             self.env.process(self.mobilityModel.move(self))
@@ -466,10 +556,41 @@ class MobileUser(MeasurementDevice):
         if self.packetArrivals:
             self.kpi.nPackets = len(self.packetArrivals)
 
-        for t in self.packetArrivals:
+        for pktId, t in enumerate(self.packetArrivals):
             packetSent = False
             yield self.env.timeout(t - self.env.now)
 
+            # Generating the packet to be transmitted
+            packetLen = 24 * 960 * 720 #* normal(loc=0, scale=1024) 
+
+
+            try:
+                packet = DataPacket(self, self.scenarioBasestations[self.servingBS], 
+                                pktId, self.env.now, packetLen)
+
+                if (self.scenarioBasestations[self.servingBS].onSSB or 
+                    self.scenarioBasestations[self.servingBS].onRach):
+
+                    if (self.scenarioBasestations[self.servingBS].nextSSB <
+                        self.scenarioBasestations[self.servingBS].nextRach):
+                        yield self.env.timeout(self.scenarioBasestations[self.servingBS].nextSSB
+                                                - (self.networkParameters.SSBurstPeriod
+                                                - self.networkParameters.SSBurstDuration)
+                                                - self.env.now)
+
+                    elif (self.scenarioBasestations[self.servingBS].nextSSB >
+                        self.scenarioBasestations[self.servingBS].nextRach):
+                        yield self.env.timeout(self.scenarioBasestations[self.servingBS].nextRach
+                                                - (self.networkParameters.SSBurstPeriod
+                                                - self.networkParameters.SSBurstDuration)
+                                                - self.env.now)
+
+                self.scenarioBasestations[self.servingBS].receivePacket(self, packet)
+
+            except KeyError:
+                continue
+
+            '''
             # The packet will be sent if and only if the UE is in sync with the
             # serving BS and, of course, if it is associated whatsoever
             if self.sync or self.handover.handoverExecutionFlag: #and self.servingBS != None:
@@ -477,6 +598,8 @@ class MobileUser(MeasurementDevice):
                 snr = max(0, self.servingBSSINR())
                 temp = self.snrThreshold
                 timer = 0
+
+                self.scenarioBasestations[self.servingBS].receivePacket(self, packet)
 
                 # There is a 10 milliseconds tolerance to send a packet
                 while timer < self.networkParameters.retryTimer and self.servingBS != None:
@@ -498,6 +621,7 @@ class MobileUser(MeasurementDevice):
 
                 if not packetSent:
                     self.kpi.delay.append(self.env.now - t)
+            '''
 
 class PredictionBaseStation(BaseStation):
     pass
@@ -568,8 +692,8 @@ class KPI:
         
         dictionary['partDelay'] = self.partDelay/self.nPackets
         dictionary['handover'] = self.handover
-        dictionary['handoverFail'] = self.handoverFail
-        dictionary['pingpong'] = self.pingpong
+        dictionary['handoverFail'] = self.handoverFail/self.handover
+        dictionary['pingpong'] = self.pingpong/self.handover
         dictionary['reassociation'] = self.reassociation
         dictionary['throughput'] = meanThroughput
         dictionary['capacity'] = meanCapacity
@@ -586,6 +710,11 @@ class NetworkParameters:
     def __init__(self):
         self.timeToTrigger = 640
         self.timeToMeasure = 40
+
+        self.RRCMsgTransmissionDelay = 5 #milliseconds
+
+        self.downlinkOverhead = 240 + 800 + 28800 +1000
+        self.uplinkOverhead = 240 + 800 + 28800 +1000
 
         self.qualityOut =  -100 #dBm
         self.qualityIn = -90 #dBm

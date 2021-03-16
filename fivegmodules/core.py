@@ -2,9 +2,11 @@ from numpy import hypot
 from numpy import arctan2
 from simpy import Environment
 
+from fivegmodules.plot import PlotNetwork
+
 
 class Scenario(Environment):
-    def __init__ (self, simTime, channel):
+    def __init__ (self, simTime):
         super(Scenario, self).__init__()
         self.simTime = simTime
          
@@ -13,6 +15,7 @@ class Scenario(Environment):
 
         self.frequency = None
         self.wavelength = None
+
          
     def addBaseStations(self, baseStations : dict):
         '''
@@ -27,6 +30,10 @@ class Scenario(Environment):
         { 'uuid' : <__class__.MobileUser>}
         '''
         self.userEquipments = userEquipments
+
+    def plot(self):
+        self.plotter = PlotNetwork(self.baseStations, self.userEquipments)
+        self.plotter.plot()
 
 
 class Channel:

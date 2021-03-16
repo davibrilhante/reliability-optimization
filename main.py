@@ -6,6 +6,7 @@ import argparse
 import json
 import operator
 import sys
+
 from collections import OrderedDict
  
 from matplotlib import pyplot as plt
@@ -16,6 +17,7 @@ import components
 import definitions as defs
 import simpy as sp
 
+from decompressor import decompressor
 from fivegmodules.devices import MobileUser
 from fivegmodules.devices import KPI
 from fivegmodules.devices import NetworkParameters
@@ -33,6 +35,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-i','--inputFile', help='Instance json input file')
 parser.add_argument('-p','--plot', action='store_true', help='xxx')
 parser.add_argument('--ttt', type=int, default=640)
+parser.add_argument('--untoggleBlockage', action='store_true')
 args = parser.parse_args()
 
 
@@ -49,6 +52,8 @@ if __name__ == '__main__':
         print(10)
         sys.exit()
 
+    decompressor(data)
+
     #scenario = data['scenario']
     #channel = data['channel']
     for p in data['baseStation']:
@@ -64,12 +69,14 @@ if __name__ == '__main__':
         #ue['nPackets'] = int(scenario['simTime']/500) - 1
         ue['capacity'] = 750e6 #Bits per second
 
-    #LOS = np.ones((len(network), len(nodes), data['scenario']['simTime']), dtype = np.int8)
-    LOS = data['blockage']
+    if args.untoggleBlockage:
+        LOS = np.ones((len(network), len(nodes), data['scenario']['simTime']), dtype = np.int8)
+    else:
+        LOS = data['blockage']
 
     channel = AWGNChannel()
     channel.noisePower = data['channel']['noisePower']
-    scenario = Scenario(data['scenario']['simTime'], channel)
+    scenario = Scenario(data['scenario']['simTime'])
     scenario.frequency = 28e9 #Hz
     scenario.wavelength = 2e8/scenario.frequency
     networkParams = NetworkParameters()
@@ -103,7 +110,16 @@ if __name__ == '__main__':
                                         i['speed']['y']
                                         )
         mobiles[i['uuid']].mobilityModel = StraightRoute()
-        mobiles[i['uuid']].channel = channel
+        mobiles[i['uuid']].channel = {}
+
+        for j in network:                
+            mobiles[i['uuid']].channel[j['uuid']] = channel = AWGNChannel()
+            mobiles[i['uuid']].channel[j['uuid']].noisePower = data['channel']['noisePower']
+            mobiles[i['uuid']].channel[j['uuid']].switchShadowing = True
+            mobiles[i['uuid']].channel[j['uuid']].switchFading = True
+            doppler = np.hypot(mobiles[i['uuid']].Vx, mobiles[i['uuid']].Vy)/scenario.wavelength
+            mobiles[i['uuid']].channel[j['uuid']].generateRayleighFading(doppler, scenario.simTime)
+
         mobiles[i['uuid']].initializeServices()
         mobiles[i['uuid']].networkParameters = networkParams
         mobiles[i['uuid']].packetArrivals = i['packets']
@@ -116,6 +132,7 @@ if __name__ == '__main__':
     scenario.run(until=scenario.simTime)
 
 
+    #scenario.plot()
     for n, i in enumerate(nodes):
         mobiles[i['uuid']].kpi.printAsDict()
         #mobiles[i['uuid']].plotRSRP.plot()

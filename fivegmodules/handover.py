@@ -23,6 +23,7 @@ class A3Handover(Handover):
         super(A3Handover, self).__init__()
         self.handoverExecutionFlag = False
         self.handoverPreparationFlag = False
+        self.x2Delay = 10 #milliseconds
  
     def triggerMeasurement(self, device, targetBS):
         counterTTT = 0
@@ -46,8 +47,21 @@ class A3Handover(Handover):
                 # Given that it is an A3 event, triggers the measurement
                 device.measOccurring = True
                 device.triggerTime = device.env.now
-                   
-                   
+                
+
+                if device.lineofsight[device.servingBS][device.env.now] == 0:
+                    # Handover due to non line of sight condition
+                    handoverCause = 0
+
+                elif (device.calcDist(device.scenarioBasestations[targetBS]) 
+                        < device.calcDist(device.scenarioBasestations[device.servingBS])):
+                    # Handover due to user mobility, i.e., closer to target BS than to Serving BS
+                    handoverCause = 1
+
+                elif device.listedRSRP[targetBS] > device.listedRSRP[device.servingBS]:
+                    # Handover due to severe channel fluctuations
+                    handoverCause = 2
+                 
                 while counterTTT < device.networkParameters.timeToTrigger:
                     yield device.env.timeout(1)
                     counterTTT += 1
@@ -81,14 +95,45 @@ class A3Handover(Handover):
                             device.kpi.log['HOF001'] = 1
 
                         self.handoverFailure(device)
+                        device.kpi.handover +=1
                         break
 
                 if counterTTT == device.networkParameters.timeToTrigger:
                     device.kpi.handover +=1
  
                     if device.sync:
-                        self.sendMeasurementReport(device, targetBS)
- 
+                        if handoverCause == 0:
+                            # Handover due to non line of sight condition
+                            try:
+                                device.kpi.log['HOC000'] += 1
+                            except KeyError:
+                                device.kpi.log['HOC000'] = 1
+
+                        elif handoverCause == 1:
+                            # Handover due to user mobility, i.e., closer to target BS than to Serving BS
+                            try:
+                                device.kpi.log['HOC001'] += 1
+                            except KeyError:
+                                device.kpi.log['HOC001'] = 1
+
+                        elif handoverCause == 2:
+                            # Handover due to severe channel fluctuations
+                            try:
+                                device.kpi.log['HOC002'] += 1
+                            except KeyError:
+                                device.kpi.log['HOC002'] = 1
+
+                        else:
+                            # Non specified reason to handover trigger
+                            try:
+                                device.kpi.log['HOC099'] += 1
+                            except KeyError:
+                                device.kpi.log['HOC099'] = 1
+
+                        yield device.env.timeout(device.networkParameters.RRCMsgTransmissionDelay)
+                        #print(device.measOccurring)
+                        device.env.process(self.sendMeasurementReport(device, targetBS))
+     
                     else:
                         try:
                             device.kpi.log['HOF002'] += 1
@@ -102,17 +147,25 @@ class A3Handover(Handover):
  
  
     def sendMeasurementReport(self, device, targetBS):
-        if (device.env.now >= device.triggerTime + device.networkParameters.timeToTrigger) and device.measOccurring:
+        #if (device.env.now >= device.triggerTime + device.networkParameters.timeToTrigger) and device.measOccurring:
+        #if device.measOccurring:
  
-            #Check if it is not a reassociation
-            if device.listedRSRP[device.servingBS] != None:
- 
-                # Check if it is a pingpong, just for kpi assessment
-                if device.lastBS.count(targetBS)>0:
-                    device.kpi.pingpong += 1
- 
-                # Switch to the new BS
-                device.env.process(self.switchBaseStation(device, targetBS))
+        #Check if it is not a reassociation
+        if device.listedRSRP[device.servingBS] != None:
+
+            # Check if it is a pingpong, just for kpi assessment
+            if device.lastBS.count(targetBS)>0:
+                device.kpi.pingpong += 1
+
+            #Base stations processing the handover at X2 interface
+            self.handoverPreparationFlag = True
+            yield device.env.timeout(
+                device.scenarioBasestations[device.servingBS].associationDelay
+                + self.x2Delay 
+                + device.scenarioBasestations[targetBS].admissionControlDelay)
+
+            # Switch to the new BS
+            device.env.process(self.switchBaseStation(device, targetBS))
 
  
  
@@ -129,10 +182,11 @@ class A3Handover(Handover):
         if device.sync:
             #print('Switching from %s to %s'%(self.servingBS, targetBS))
             device.lastBS.append(device.servingBS)
-            self.handoverPreparationFlag = True
 
-            # yields for the BS association delay/HO preparation time
-            yield device.env.timeout(device.scenarioBasestations[targetBS].associationDelay)
+            # yields for receiving HO Command RRC message and process this message
+            yield device.env.timeout(device.networkParameters.RRCMsgTransmissionDelay)
+
+            yield device.env.timeout(device.handoverCommandProcDelay)
 
             self.handoverPreparationFlag = False
 
@@ -154,6 +208,8 @@ class A3Handover(Handover):
                 device.sync = False
                 self.handoverExecutionFlag = True
 
+                yield device.env.timeout(device.freqReconfigDelay)
+
                 # The time gap between the disassociation from the Serving BS to the
                 # target BS is known as handover interruption time (HIT) and it is
                 # the for the UE to get synced with the target BS. There is no data
@@ -165,10 +221,14 @@ class A3Handover(Handover):
                         device.networkParameters.SSBurstDuration  - device.env.now
                         )
 
+                # yields to send RRC Reconfiguration complete message
+                yield device.env.timeout(device.networkParameters.RRCMsgTransmissionDelay)
+
 
                 # Checks whether the HO Complete will be successfully sent/received 
                 # If not, the handover fails
                 if device.listedRSRP[targetBS] > device.networkParameters.qualityOut: 
+                    #print('Entra aqui', device.env.now)
                     # Now the UE is up and downlink synced
                     device.sync = True
                     device.servingBS = targetBS

@@ -50,18 +50,19 @@ class PlotSINR(PlotKpi):
 
 class PlotNetwork(Plotter):
     def __init__(self, baseStations : dict, userEquipments : dict):
+        super(PlotNetwork, self).__init__()
         self.basestations = baseStations
         self.userequipments = userEquipments
 
     def plotBaseStations(self):
         for m, bs in enumerate(self.basestations.values()):
-            plt.scatter(bs['position']['x'], bs['position']['y']+20, marker = '^')
-            plt.text(bs['position']['x']+10, bs['position']['y']+10, 'BS '+str(m)+'\n'+str(bs['txPower'])+'dBm')
+            plt.scatter(bs.x, bs.y+20, marker = '^')
+            plt.text(bs.x+10, bs.y+10, 'BS '+str(m)+'\n'+str(bs.txPower)+'dBm')
 
     def plotUserEquipments(self):
         for n, ue in enumerate(self.userequipments.values()):
-            plt.scatter(ue['position']['x'], ue['position']['y']+20, color=colors[n+1], marker='s')
-            plt.text(ue['position']['x']-40, ue['position']['y']+10, str(ue['speed']['y'])+'Km/h')
+            plt.scatter(ue.x, ue.y+20, marker='s')
+            plt.text(ue.x-40, ue.y+10, str(ue.Vy)+'Km/h')
 
     def plotBSRange(self, radius):
         pass

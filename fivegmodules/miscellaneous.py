@@ -97,10 +97,35 @@ class ConePlusCircle(Antenna):
 
 
 class Packet:
-    def __init__(self):
-        self.arrival = 0
-        self.payload = None
-        self.timetolive = 0
+    def __init__(self, source, dest, pId : int, arrv : int, payloadLen : int):
+        self.arrival = arrv
+        self.payloadLen = payloadLen
+        self.timetolive = 80
+        self.source = source
+        self.dest = dest
+        self.packetId = pId
+        self.flowId = 0
+
+    def acknowledge(self, nextpkt):
+        raise NotImplementedError
+
 
 class DataPacket(Packet):
-    pass
+    def __init__(self, source, dest, pId : int, arrv : int, 
+                payloadLen : int, data = None):
+
+        super(DataPacket, self).__init__(source, dest, pId, arrv, payloadLen)
+        self.data = data
+
+    def acknowledge(self, nextpkt):
+        pass
+
+class ACK(Packet):
+    def __init__(self, source, dest, pId : int, arrv : int, nextPkt : int):
+        self.payloadLen = 512
+        self.nextPkt = nextPkt
+        super(DataPacket, self).__init__(source, dest, pId, arrv, self.payloadLen)
+
+    def acknowledge(self, nextpkt):
+        pass
+
