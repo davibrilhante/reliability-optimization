@@ -44,8 +44,12 @@ class BaseStation(WirelessDevice):
 
         self.networkParameters = None
         self.numerology = None
-        self.associationDelay = 15 # milliseconds (time to process handover decision)
+        self.handoverDecisionDelay = 15 # milliseconds (time to process handover decision)
         self.admissionControlDelay = 20 #milliseconds
+        self.X2processingDelay = 5
+        self.RRCprocessingDelay = 5
+        self.preambleDetectionDelay = 3
+        self.uplinkAllocationDelay = 5
 
 
         # Downlink proportion in relation to the data frame duration
@@ -220,10 +224,11 @@ class SynchronizationAssessment(SignalAssessmentPolicy):
     # The UE sync with the serving BS will be tested
     def signalAssessment(self, device):
         if device.servingBS != None:
-            if device.listedRSRP[device.servingBS] < device.networkParameters.qualityOut and self.qualityOutCounter == 0:
+            #if device.listedRSRP[device.servingBS] < device.networkParameters.qualityOut and self.qualityOutCounter == 0:
+            if device.listedRSRP[device.servingBS] < device.networkParameters.qualityOut and not device.T310running:
                 downcounter = device.networkParameters.T310
                 while downcounter > 0:
-                    #print(device.env.now, device.listedRSRP[device.servingBS], downcounter)
+                    print(device.env.now, device.listedRSRP[device.servingBS], downcounter)
 
                     if device.servingBS == None:
                         break
@@ -283,19 +288,16 @@ class SynchronizationAssessment(SignalAssessmentPolicy):
                 if downcounter == 0:
                     # out of sync!
                     device.sync = False
+                    device.kpi.association[-1].append(device.env.now)
                     try:
-                        #device.kpi.outofsync += 1
                         device.kpi.outofsync.append(device.env.now)
                     except:
                         device.kpi.outofsync = [device.env.now]
-                    #device.kpi.outofsync += 1
  
                     # Need to reassociate with the network
                     device.lastBS.append(device.servingBS)
-                    #device.reassociationFlag = False
                     device.servingBS = None
                     device.T310running = False
-                    #print(device.env.now)
  
                 self.qualityOutCounter = 0
                 self.qualityInCounter = 0
@@ -354,10 +356,12 @@ class MeasurementDevice(WirelessDevice):
         self.handover = None
         self.handoverCommandProcDelay = 15 #milliseconds
         self.freqReconfigDelay = 20 #milliseconds
+        self.uplinkAllocationProcessingDelay = 5
         
         self.syncAssessment = SynchronizationAssessment()
         self.bsAssessment = HandoverAssessment()
         self.kpi = KPI() 
+        self.kpi.simTime = self.env.simTime
 
         self.measOccurring = False
         self.T310running = False
@@ -523,6 +527,7 @@ class MeasurementDevice(WirelessDevice):
             value = 0
         self.plotRSRP.collectKpi(value)
         self.plotSINR.collectKpi()
+        self.kpi.averageSinr.append(self.servingBSSINR())
 
 
 
@@ -541,6 +546,7 @@ class MobileUser(MeasurementDevice):
         self.env.process(self.firstAssociation())
         self.env.process(self.measurementEvent())
         self.env.process(self.sendingPackets())
+        self.env.process(self.connectivityGap())
 
         #doppler = hypot(self.Vx, self.Vy)/self.env.wavelength
         #self.channel.generateRayleighFading(doppler,self.env.simTime)
@@ -550,6 +556,12 @@ class MobileUser(MeasurementDevice):
 
         if issubclass(self.mobilityModel.__class__, MobilityModel):
             self.env.process(self.mobilityModel.move(self))
+
+    def connectivityGap(self):
+        while True:
+            if not self.sync:
+                self.kpi.gap += 1
+            yield self.env.timeout(1)
 
     # This method schedules the packets transmission
     def sendingPackets(self):
@@ -642,6 +654,10 @@ class KPI:
         self.outofsync = 0
         self.nPackets = 0
         self.log = {}
+        self.averageSinr = []
+        self.averageBlockageDuration = []
+        self.gap = 0
+        self.simTime = 0
 
     def _print(self):
         if self.throughput:
@@ -688,10 +704,25 @@ class KPI:
         else:
             meanDelay = 0
 
+        if self.averageSinr:
+            meanSinr = mean(self.averageSinr)
+        else:
+            meanSinr = 0
+
+        if self.averageBlockageDuration:
+            meanBlockageDuration = mean(self.averageBlockageDuration)
+        else:
+            meanBlockageDuration = 0
+
+        self.association[-1].append(self.simTime)
+
         dictionary = {}
         
+        dictionary['sinr'] = meanSinr
+        dictionary['gap'] = self.gap
         dictionary['partDelay'] = self.partDelay/self.nPackets
         dictionary['handover'] = self.handover
+        dictionary['handoverRate'] = self.handover/(self.simTime/1e3)
         dictionary['handoverFail'] = self.handoverFail/self.handover
         dictionary['pingpong'] = self.pingpong/self.handover
         dictionary['reassociation'] = self.reassociation
@@ -718,9 +749,9 @@ class NetworkParameters:
 
         self.qualityOut =  -100 #dBm
         self.qualityIn = -90 #dBm
-        self.N310 = 10
-        self.T310 = 100
-        self.N311 = 10
+        self.N310 = 1
+        self.T310 = 1000
+        self.N311 = 1
         self.T304 = 100
 
         self.handoverHysteresys = 0
