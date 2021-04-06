@@ -25,6 +25,7 @@ class PlotRSRP(PlotKpi):
 
     def collectKpi(self, value = None):
         self.metric.append(value)
+        self.device.kpi.averageRsrp.append(self.metric[-1])
 
     def plot(self):
         plt.plot(self.metric)
@@ -39,6 +40,7 @@ class PlotSINR(PlotKpi):
 
     def collectKpi(self, value = None):
         self.metric.append(self.device.servingBSSINR())
+        self.device.kpi.averageSinr.append(self.metric[-1])
 
     def plot(self):
         plt.plot(self.metric)

@@ -36,6 +36,8 @@ parser.add_argument('-i','--inputFile', help='Instance json input file')
 parser.add_argument('-p','--plot', action='store_true', help='xxx')
 parser.add_argument('--ttt', type=int, default=640)
 parser.add_argument('--untoggleBlockage', action='store_true')
+parser.add_argument('--untoggleRayleigh', action='store_false')
+parser.add_argument('--untoggleShadowing', action='store_false')
 args = parser.parse_args()
 
 
@@ -115,22 +117,23 @@ if __name__ == '__main__':
         for j in network:                
             mobiles[i['uuid']].channel[j['uuid']] = AWGNChannel()
             mobiles[i['uuid']].channel[j['uuid']].noisePower = data['channel']['noisePower']
-            mobiles[i['uuid']].channel[j['uuid']].switchShadowing = True
-            mobiles[i['uuid']].channel[j['uuid']].switchFading = True
+            mobiles[i['uuid']].channel[j['uuid']].switchShadowing = args.untoggleShadowing
+            mobiles[i['uuid']].channel[j['uuid']].switchFading = args.untoggleRayleigh
             #doppler = np.hypot(mobiles[i['uuid']].Vx, mobiles[i['uuid']].Vy)/scenario.wavelength
             #mobiles[i['uuid']].channel[j['uuid']].generateRayleighFading(doppler, scenario.simTime)
             #with open(j['uuid'], 'w') as filehandle:
             #    json.dump(mobiles[i['uuid']].channel[j['uuid']].fadingSamples.tolist(), filehandle)
 
-            try: 
-                with open(j['uuid']) as filehandle:
-                    mobiles[i['uuid']].channel[j['uuid']].fadingSamples = json.load(filehandle)
+            if mobiles[i['uuid']].channel[j['uuid']].switchFading:
+                try: 
+                    with open(j['uuid']) as filehandle:
+                        mobiles[i['uuid']].channel[j['uuid']].fadingSamples = json.load(filehandle)
 
-            except FileNotFoundError:
-                doppler = np.hypot(mobiles[i['uuid']].Vx, mobiles[i['uuid']].Vy)/scenario.wavelength
-                mobiles[i['uuid']].channel[j['uuid']].generateRayleighFading(doppler, scenario.simTime)
-                with open(j['uuid'], 'w') as filehandle:
-                    json.dump(mobiles[i['uuid']].channel[j['uuid']].fadingSamples.tolist(), filehandle)
+                except FileNotFoundError:
+                    doppler = np.hypot(mobiles[i['uuid']].Vx, mobiles[i['uuid']].Vy)/scenario.wavelength
+                    mobiles[i['uuid']].channel[j['uuid']].generateRayleighFading(doppler, scenario.simTime)
+                    with open(j['uuid'], 'w') as filehandle:
+                        json.dump(mobiles[i['uuid']].channel[j['uuid']].fadingSamples.tolist(), filehandle)
                 
 
         mobiles[i['uuid']].initializeServices()
@@ -142,11 +145,13 @@ if __name__ == '__main__':
 
     scenario.addUserEquipments(mobiles)
 
-    scenario.run(until=67500)#scenario.simTime)
+    scenario.run(until=scenario.simTime)
 
 
-    #scenario.plot()
+    if args.plot:
+        scenario.plot()
     for n, i in enumerate(nodes):
         mobiles[i['uuid']].kpi.printAsDict()
-        #mobiles[i['uuid']].plotRSRP.plot()
-        #mobiles[i['uuid']].plotSINR.plot()
+        if args.plot:
+            mobiles[i['uuid']].plotRSRP.plot()
+            mobiles[i['uuid']].plotSINR.plot()

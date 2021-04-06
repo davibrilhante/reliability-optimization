@@ -41,10 +41,11 @@ class A3Handover(Handover):
                     (
                         device.listedRSRP[targetBS] 
                         - device.networkParameters.handoverHysteresys
-                        )
+                    )
                 >= (
-                    device.listedRSRP[device.servingBS] 
-                    + device.networkParameters.handoverOffset
+                        device.listedRSRP[device.servingBS] 
+                        + device.networkParameters.handoverOffset
+                        + device.networkParameters.handoverHysteresys
                     )
                 ):
 
@@ -67,8 +68,8 @@ class A3Handover(Handover):
                     handoverCause = 2
                  
                 while counterTTT < device.networkParameters.timeToTrigger:
-                    yield device.env.timeout(1) #device.networkParameters.timeToMeasure)
-                    counterTTT += 1 #device.networkParameters.timeToMeasure
+                    yield device.env.timeout(device.networkParameters.timeToMeasure)
+                    counterTTT += device.networkParameters.timeToMeasure
  
                     if device.sync:
                         # The A3 condition still valid? If not, stop the timer
@@ -78,8 +79,9 @@ class A3Handover(Handover):
                                     - device.networkParameters.handoverHysteresys
                                     )
                             <= (
-                                device.listedRSRP[device.servingBS] 
-                                + device.networkParameters.handoverOffset
+                                    device.listedRSRP[device.servingBS] 
+                                    + device.networkParameters.handoverOffset
+                                    + device.networkParameters.handoverHysteresys
                                 )
                             ):
 
@@ -154,7 +156,8 @@ class A3Handover(Handover):
     def sendMeasurementReport(self, device, targetBS):
 
         #Check if it is not a reassociation
-        if device.listedRSRP[device.servingBS] != None:
+        #if device.listedRSRP[device.servingBS] != None:
+        if device.sync:# and (device.servingBSSINR() > device.networkParameters.qualityOut):
 
             # Holds the time to send the RRC:Measurement Report
             yield device.env.timeout(device.networkParameters.RRCMsgTransmissionDelay)
@@ -166,6 +169,7 @@ class A3Handover(Handover):
             #Base stations processing the handover at X2 interface
             self.handoverPreparationFlag = True
             self.handoverPreparationStart = device.env.now
+
             yield device.env.timeout(
                 device.scenarioBasestations[device.servingBS].RRCprocessingDelay
                 + device.scenarioBasestations[device.servingBS].handoverDecisionDelay
@@ -175,6 +179,14 @@ class A3Handover(Handover):
 
             # Switch to the new BS
             device.env.process(self.switchBaseStation(device, targetBS))
+        '''
+        else:
+            try:
+                device.kpi.log['HOF002'] += 1
+            except KeyError:
+                device.kpi.log['HOF002'] = 1
+            self.handoverFailure(device)
+        '''
 
  
  
@@ -216,7 +228,7 @@ class A3Handover(Handover):
 
             # Receiving handover command and turning to RRC Idle untill uplink 
             # sync with target BS
-            if device.sync and not device.T310running:
+            if device.sync: #and not device.T310running:
                 disassociation = device.env.now
                 device.sync = False
 
@@ -250,7 +262,9 @@ class A3Handover(Handover):
 
                 # Checks whether the HO Complete will be successfully sent/received 
                 # If not, the handover fails
-                if device.listedRSRP[targetBS] > device.networkParameters.qualityOut: 
+                #if device.listedRSRP[targetBS] > device.networkParameters.qualityOut: 
+                device.servingBS = targetBS
+                if device.servingBSSINR() > device.networkParameters.qualityOut: 
 
                     # Once the RRC:HO complete is recieved it needs to be processed
                     yield device.env.timeout(device.scenarioBasestations[targetBS].RRCprocessingDelay)
@@ -258,7 +272,6 @@ class A3Handover(Handover):
                     # Now the UE is up and downlink synced
                     device.sync = True
                     self.handoverFlag = False
-                    device.servingBS = targetBS
                     device.kpi.association.append(
                         [list(device.scenarioBasestations.keys()).index(device.servingBS), device.env.now])
                     device.kpi.association[-2].append(disassociation)

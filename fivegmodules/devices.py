@@ -215,6 +215,97 @@ class SignalAssessmentPolicy:
     def signalAssessment(self, device):
         raise NotImplementedError
 
+
+class T310Monitor(SignalAssessmentPolicy):
+    def __init__ (self):
+        self.qualityOutCounter = 0
+        self.qualityInCounter = 0
+        self.T310flag = False
+        self.T310ElapsedTime = 0
+        self.SINRSample = 0
+                           
+    # Testing whether the handover did not fail due to be late
+    # The UE sync with the serving BS will be tested
+    def signalAssessment(self, device):
+        device.env.process(self.qualityInMonitor(device))
+        device.env.process(self.qualityOutMonitor(device))
+
+    def qualityOutMonitor(self, device):
+        while True:
+            # every 200 ms will check if SINR < Q_in
+            yield device.env.timeout(device.networkParameters.qOutMonitorTimer)
+
+            if not self.T310flag:
+
+                if self.SINRSample < device.networkParameters.qualityOut:
+                    # if in Q_out condition, it checks if T310 counter is running
+                    self.qualityOutCounter += 1
+
+                    # If it is not running, check if there are N310 Q_out samples
+                    # already sampled to see whether it should start T310 or not
+                    if self.qualityOutCounter >= device.networkParameters.N310:
+                        self.T310flag = True
+                        device.T310running = True
+            else:
+
+                # Yes, there is a T310 timer on! We should increment it by
+                # the time elapsed since the last Q_out check
+                self.T310ElapsedTime += device.networkParameters.qOutMonitorTimer
+
+                if self.T310ElapsedTime >= device.networkParameters.T310:
+                    # T310 is over, the user is out of sync!
+                    device.sync = False
+                    device.T310running = False
+
+                    self.T310flag = False
+                    self.T310ElapsedTime = 0
+
+                    #device.kpi.association[-1].append(device.env.now)
+                    try:
+                        device.kpi.outofsync.append(device.env.now)
+                    except:
+                        device.kpi.outofsync = [device.env.now]
+
+                else:
+                    self.qualityOutCounter = 0
+                    self.qualityInCounter = 0
+
+
+
+    def qualityInMonitor(self, device):
+        while True:
+            # every 100 ms will check if SINR >= Q_in
+            yield device.env.timeout(device.networkParameters.qInMonitorTimer)
+
+            # When no time passess in the simulation we must use the same SINR sample
+            # because the method called for SINR measurement changes every time it is
+            # called due to its radomness
+            self.SINRSample = device.servingBSSINR()
+            #print('T310 flag:', self.T310flag, ' BS SINR: ', self.SINRSample)
+
+            if self.SINRSample >= device.networkParameters.qualityIn:
+                #print(self.SINRSample)
+
+                # If in Q_in condition, it checks if the T310 is running
+                if not self.T310flag:
+                    # If T310 not running, just reset the counters
+                    self.qualityOutCounter = 0
+                    self.qualityInCounter = 0
+
+                else:
+
+                    # If T310 is counting, then t increments the Q_in counter 
+                    # and checks if there are N311 Q_in counters
+                    self.qualityInCounter+= 1
+
+                    if self.qualityInCounter >= device.networkParameters.N311:
+                        # There are N311 Q_in counters, then it stops T310
+
+                        self.T310flag = False
+                        device.T310running = False
+                        self.T310ElapsedTime = 0
+
+            
 class SynchronizationAssessment(SignalAssessmentPolicy):
     def __init__ (self):
         self.qualityOutCounter = 0    
@@ -320,7 +411,6 @@ class HandoverAssessment(SignalAssessmentPolicy):
         #for n,i in enumerate(device.listedRSRP.keys()):
         #    device.plotRecvRSRP[n].append(device.listedRSRP[i])
  
-        ### FIRST TIME USER ASSOCIATON
         if device.servingBS == None and device.listedRSRP[maxRSRP] > device.sensibility:
             if device.lastBS:
                 #device.reassociation(maxRSRP)
@@ -330,9 +420,10 @@ class HandoverAssessment(SignalAssessmentPolicy):
  
  
         elif device.servingBS != None and device.sync:
-            snr = 10**((device.listedRSRP[device.servingBS] - device.channel[device.servingBS].noisePower)/10)
+            #snr = 10**((device.listedRSRP[device.servingBS] - device.channel[device.servingBS].noisePower)/10)
+            sinr = 10**((device.servingBSSINR()/10))
             #print(self.env.now, maxRSRP, self.listedRSRP[maxRSRP], self.servingBS, self.listedRSRP[self.servingBS], snr)
-            rate = device.scenarioBasestations[device.servingBS].bandwidth*log2(1 + snr)
+            rate = device.scenarioBasestations[device.servingBS].bandwidth*log2(1 + sinr)
             device.kpi.capacity.append(rate)
  
             # This is the condition trigger a handover
@@ -358,7 +449,8 @@ class MeasurementDevice(WirelessDevice):
         self.freqReconfigDelay = 20 #milliseconds
         self.uplinkAllocationProcessingDelay = 5
         
-        self.syncAssessment = SynchronizationAssessment()
+        #self.syncAssessment = SynchronizationAssessment()
+        self.syncAssessment = T310Monitor()
         self.bsAssessment = HandoverAssessment()
         self.kpi = KPI() 
         self.kpi.simTime = self.env.simTime
@@ -377,7 +469,7 @@ class MeasurementDevice(WirelessDevice):
         while True:
             self.updateBSList()
             self.bsAssessment.signalAssessment(self)
-            self.env.process(self.syncAssessment.signalAssessment(self))
+            #self.env.process(self.syncAssessment.signalAssessment(self))
             yield self.env.timeout(self.networkParameters.timeToMeasure)
 
     # This method processes the LOS info from the instance
@@ -398,14 +490,16 @@ class MeasurementDevice(WirelessDevice):
                     self.networkParameters.SSBurstDuration  - self.env.now
                     )
 
-        if self.listedRSRP[baseStation] > self.networkParameters.qualityOut: 
+        #if self.listedRSRP[baseStation] > self.networkParameters.qualityOut: 
+        if self.listedRSRP[baseStation] > self.sensibility:
             # yields untill the downlink and uplink sync is completed
             yield self.env.timeout(
                     self.scenarioBasestations[baseStation].nextRach 
                     + self.networkParameters.SSBurstDuration  - self.env.now
                     )
             
-            if self.listedRSRP[baseStation] > self.networkParameters.qualityOut: 
+            #if self.listedRSRP[baseStation] > self.networkParameters.qualityOut: 
+            if self.listedRSRP[baseStation] > self.sensibility:
                 # Now, the UE is in sync with the serving BS
                 yield self.env.timeout(3*self.networkParameters.RRCMsgTransmissionDelay)
 
@@ -461,7 +555,7 @@ class MeasurementDevice(WirelessDevice):
                     servingBSPower = (bs.txPower + bs.antenna.gain(angle=angleBSUE, direction= directionBSUE)
                             + self.antenna.gain(angle=angleUEBS, direction=directionUEBS)
                             - self.channel[uuid].pathLossCalc(reference, exponent,
-                            distance, shadowingStdev=stdev))
+                            distance, shadowingStdev=stdev, fadingSample = self.env.now))
 
                 else:
                     directionBSUE = uniform(0, 2*pi)
@@ -472,12 +566,17 @@ class MeasurementDevice(WirelessDevice):
                     interference += 10**((bs.txPower + bs.antenna.gain(angle=angleBSUE, direction= directionBSUE) 
                             + self.antenna.gain(angle=angleUEBS, direction=directionUEBS) 
                             - self.channel[uuid].pathLossCalc(reference, exponent, 
-                            distance, shadowingStdev=stdev))/10)
+                            distance, shadowingStdev=stdev, fadingSample = self.env.now))/10)
 
 
-            noisePlusInterference = 10*log10(10**(self.channel[uuid].noisePower/10) + interference)
+            noisePlusInterference = 10**(self.channel[self.servingBS].noisePower/10) + interference
+            print(self.env.now, 10**(self.listedRSRP[self.servingBS]/10), noisePlusInterference)
 
-            SINR = self.listedRSRP[self.servingBS] - noisePlusInterference
+            SINR = 10*log10((10**(self.listedRSRP[self.servingBS]/10))/noisePlusInterference)
+            #SINR = servingBSPower - noisePlusInterference
+            #print('bssinr', servingBSPower)
+            #print('bssinr', self.listedRSRP[self.servingBS],'\n n+i', noisePlusInterference)
+            print(SINR)
             return SINR
 
     def updateBSList(self):
@@ -526,8 +625,9 @@ class MeasurementDevice(WirelessDevice):
         except KeyError:
             value = 0
         self.plotRSRP.collectKpi(value)
+        #print('update', value)
         self.plotSINR.collectKpi()
-        self.kpi.averageSinr.append(self.servingBSSINR())
+        #self.kpi.averageSinr.append(self.servingBSSINR())
 
 
 
@@ -547,6 +647,8 @@ class MobileUser(MeasurementDevice):
         self.env.process(self.measurementEvent())
         self.env.process(self.sendingPackets())
         self.env.process(self.connectivityGap())
+
+        self.syncAssessment.signalAssessment(self)
 
         #doppler = hypot(self.Vx, self.Vy)/self.env.wavelength
         #self.channel.generateRayleighFading(doppler,self.env.simTime)
@@ -655,6 +757,7 @@ class KPI:
         self.nPackets = 0
         self.log = {}
         self.averageSinr = []
+        self.averageRsrp = []
         self.averageBlockageDuration = []
         self.gap = 0
         self.simTime = 0
@@ -709,6 +812,11 @@ class KPI:
         else:
             meanSinr = 0
 
+        if self.averageRsrp:
+            meanRsrp = mean(self.averageRsrp)
+        else:
+            meanRsrp = 0
+
         if self.averageBlockageDuration:
             meanBlockageDuration = mean(self.averageBlockageDuration)
         else:
@@ -719,6 +827,7 @@ class KPI:
         dictionary = {}
         
         dictionary['sinr'] = meanSinr
+        dictionary['rsrp'] = meanRsrp
         dictionary['gap'] = self.gap
         dictionary['partDelay'] = self.partDelay/self.nPackets
         dictionary['handover'] = self.handover
@@ -747,11 +856,13 @@ class NetworkParameters:
         self.downlinkOverhead = 240 + 800 + 28800 +1000
         self.uplinkOverhead = 240 + 800 + 28800 +1000
 
-        self.qualityOut =  -100 #dBm
-        self.qualityIn = -90 #dBm
+        self.qualityOut = -7.2 # dB SINR #-100 #dBm RSRP
+        self.qualityIn = -4.8  # dB SINR #-90 #dB RSRP
         self.N310 = 1
+        self.qOutMonitorTimer = 200
         self.T310 = 1000
         self.N311 = 1
+        self.qInMonitorTimer = 100
         self.T304 = 100
 
         self.handoverHysteresys = 0
