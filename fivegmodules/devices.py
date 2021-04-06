@@ -570,13 +570,13 @@ class MeasurementDevice(WirelessDevice):
 
 
             noisePlusInterference = 10**(self.channel[self.servingBS].noisePower/10) + interference
-            print(self.env.now, 10**(self.listedRSRP[self.servingBS]/10), noisePlusInterference)
+            #print(self.env.now, 10**(self.listedRSRP[self.servingBS]/10), noisePlusInterference)
 
             SINR = 10*log10((10**(self.listedRSRP[self.servingBS]/10))/noisePlusInterference)
             #SINR = servingBSPower - noisePlusInterference
             #print('bssinr', servingBSPower)
             #print('bssinr', self.listedRSRP[self.servingBS],'\n n+i', noisePlusInterference)
-            print(SINR)
+            #print(SINR)
             return SINR
 
     def updateBSList(self):
