@@ -119,10 +119,6 @@ if __name__ == '__main__':
             mobiles[i['uuid']].channel[j['uuid']].noisePower = data['channel']['noisePower']
             mobiles[i['uuid']].channel[j['uuid']].switchShadowing = args.untoggleShadowing
             mobiles[i['uuid']].channel[j['uuid']].switchFading = args.untoggleRayleigh
-            #doppler = np.hypot(mobiles[i['uuid']].Vx, mobiles[i['uuid']].Vy)/scenario.wavelength
-            #mobiles[i['uuid']].channel[j['uuid']].generateRayleighFading(doppler, scenario.simTime)
-            #with open(j['uuid'], 'w') as filehandle:
-            #    json.dump(mobiles[i['uuid']].channel[j['uuid']].fadingSamples.tolist(), filehandle)
 
             if mobiles[i['uuid']].channel[j['uuid']].switchFading:
                 try: 

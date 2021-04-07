@@ -196,9 +196,17 @@ class A3Handover(Handover):
         device.reassociationFlag = False
         device.kpi.handoverFail += 1
  
-        device.kpi.association[-1].append(device.env.now)
+        #device.kpi.association[-1].append(device.env.now+0.2)
         self.handoverFlag = False
         device.sync = False
+
+        if self.handoverExecutionFlag:
+            device.kpi.association[-1].append(device.env.now)
+
+            try:
+                device.kpi.outofsync.append([device.env.now])
+            except:
+                device.kpi.outofsync = [[device.env.now]]
 
     def switchBaseStation(self, device, targetBS):
         if device.sync:

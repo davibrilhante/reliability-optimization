@@ -256,15 +256,18 @@ class T310Monitor(SignalAssessmentPolicy):
                     # T310 is over, the user is out of sync!
                     device.sync = False
                     device.T310running = False
+                    device.lastBS.append(device.servingBS)
+                    device.servingBS = None
+
 
                     self.T310flag = False
                     self.T310ElapsedTime = 0
 
-                    #device.kpi.association[-1].append(device.env.now)
+                    device.kpi.association[-1].append(device.env.now)
                     try:
-                        device.kpi.outofsync.append(device.env.now)
+                        device.kpi.outofsync.append([device.env.now])
                     except:
-                        device.kpi.outofsync = [device.env.now]
+                        device.kpi.outofsync = [[device.env.now]]
 
                 else:
                     self.qualityOutCounter = 0
@@ -408,8 +411,12 @@ class SynchronizationAssessment(SignalAssessmentPolicy):
 class HandoverAssessment(SignalAssessmentPolicy):
     def signalAssessment(self, device):
         maxRSRP = max(device.listedRSRP.items(), key=operator.itemgetter(1))[0]
-        #for n,i in enumerate(device.listedRSRP.keys()):
-        #    device.plotRecvRSRP[n].append(device.listedRSRP[i])
+        '''
+        try:
+            print(device.env.now, maxRSRP, device.listedRSRP[maxRSRP],device.servingBS, device.listedRSRP[device.servingBS])
+        except KeyError:
+            pass
+        '''
  
         if device.servingBS == None and device.listedRSRP[maxRSRP] > device.sensibility:
             if device.lastBS:
@@ -422,7 +429,7 @@ class HandoverAssessment(SignalAssessmentPolicy):
         elif device.servingBS != None and device.sync:
             #snr = 10**((device.listedRSRP[device.servingBS] - device.channel[device.servingBS].noisePower)/10)
             sinr = 10**((device.servingBSSINR()/10))
-            #print(self.env.now, maxRSRP, self.listedRSRP[maxRSRP], self.servingBS, self.listedRSRP[self.servingBS], snr)
+            #print(device.env.now, maxRSRP, device.listedRSRP[maxRSRP],device.servingBS, device.listedRSRP[device.servingBS], sinr)
             rate = device.scenarioBasestations[device.servingBS].bandwidth*log2(1 + sinr)
             device.kpi.capacity.append(rate)
  
@@ -459,6 +466,8 @@ class MeasurementDevice(WirelessDevice):
         self.T310running = False
         self.triggerTime = 0
 
+        self.cellAttachmentFlag = False
+
         self.plotRSRP = PlotRSRP(self)
         self.plotSINR = PlotSINR(self)
 
@@ -469,7 +478,6 @@ class MeasurementDevice(WirelessDevice):
         while True:
             self.updateBSList()
             self.bsAssessment.signalAssessment(self)
-            #self.env.process(self.syncAssessment.signalAssessment(self))
             yield self.env.timeout(self.networkParameters.timeToMeasure)
 
     # This method processes the LOS info from the instance
@@ -478,39 +486,49 @@ class MeasurementDevice(WirelessDevice):
             self.lineofsight[bs] = los[m][n]
 
     def firstAssociation(self, baseStation = None):
-        ### FIRST TIME USER ASSOCIATON
-        if baseStation == None:
-            self.updateBSList()
-            baseStation = max(self.listedRSRP.items(), key=operator.itemgetter(1))[0]
+        if not self.cellAttachmentFlag:
+            self.cellAttachmentFlag = True
+            #print(self.env.now, 'cell attachment routine')
 
-        #print(self.env.now, self.scenarioBasestations[baseStation].nextSSB)
+            ### FIRST TIME USER ASSOCIATON
+            if baseStation == None:
+                yield self.env.timeout(5*self.networkParameters.timeToMeasure)
+                self.updateBSList()
+                baseStation = max(self.listedRSRP.items(), key=operator.itemgetter(1))[0]
 
-        yield self.env.timeout(             
-                    self.scenarioBasestations[baseStation].nextSSB + 
-                    self.networkParameters.SSBurstDuration  - self.env.now
-                    )
+            #print(self.env.now, self.scenarioBasestations[baseStation].nextSSB)
+            #print(self.env.now, self.listedRSRP)
 
-        #if self.listedRSRP[baseStation] > self.networkParameters.qualityOut: 
-        if self.listedRSRP[baseStation] > self.sensibility:
-            # yields untill the downlink and uplink sync is completed
-            yield self.env.timeout(
-                    self.scenarioBasestations[baseStation].nextRach 
-                    + self.networkParameters.SSBurstDuration  - self.env.now
-                    )
-            
+            yield self.env.timeout(             
+                        self.scenarioBasestations[baseStation].nextSSB + 
+                        self.networkParameters.SSBurstDuration  - self.env.now
+                        )
+
             #if self.listedRSRP[baseStation] > self.networkParameters.qualityOut: 
             if self.listedRSRP[baseStation] > self.sensibility:
-                # Now, the UE is in sync with the serving BS
-                yield self.env.timeout(3*self.networkParameters.RRCMsgTransmissionDelay)
+                # yields untill the downlink and uplink sync is completed
+                yield self.env.timeout(
+                        self.scenarioBasestations[baseStation].nextRach 
+                        + self.networkParameters.SSBurstDuration  - self.env.now
+                        )
+                
+                #if self.listedRSRP[baseStation] > self.networkParameters.qualityOut: 
+                if self.listedRSRP[baseStation] > self.sensibility:
+                    # Now, the UE is in sync with the serving BS
+                    yield self.env.timeout(3*self.networkParameters.RRCMsgTransmissionDelay)
 
-                self.sync = True
-                self.servingBS = baseStation
-                self.kpi.association.append([list(self.scenarioBasestations.keys()).index(self.servingBS),
-                                                self.env.now])
-                #print('Association complete!', self.env.now)
-                if self.reassociationFlag:
-                    self.reassociationFlag = False
-        #print('After', self.sync, self.env.now)
+                    #print('picked ', baseStation, ' for new cell at', self.env.now)
+
+                    self.sync = True
+                    self.servingBS = baseStation
+                    self.kpi.association.append([list(self.scenarioBasestations.keys()).index(self.servingBS),
+                                                    self.env.now])
+                    #print('Association complete!', self.env.now)
+                    if self.reassociationFlag:
+                        self.kpi.outofsync[-1].append(self.env.now)
+                        self.reassociationFlag = False
+            self.cellAttachmentFlag = False
+            #print('After', self.sync, self.env.now)
 
     def connectionReestablishment(self, baseStation):
         if not self.reassociationFlag:
@@ -615,15 +633,19 @@ class MeasurementDevice(WirelessDevice):
                 self.listedRSRP[uuid] = (1-filterCoeff)*oldRSRP + filterCoeff*RSRP
 
             except KeyError:
+                self.listedRSRP[uuid] = RSRP
+                '''
                 if RSRP > self.sensibility:
                     self.listedRSRP[uuid] = RSRP
                 else:
                     self.listedRSRP[uuid] = float('-inf') #None
+                '''
 
         try:
             value =  self.listedRSRP[self.servingBS]
         except KeyError:
-            value = 0
+            value = -200 ### Better than -inf???
+ 
         self.plotRSRP.collectKpi(value)
         #print('update', value)
         self.plotSINR.collectKpi()
@@ -704,38 +726,6 @@ class MobileUser(MeasurementDevice):
             except KeyError:
                 continue
 
-            '''
-            # The packet will be sent if and only if the UE is in sync with the
-            # serving BS and, of course, if it is associated whatsoever
-            if self.sync or self.handover.handoverExecutionFlag: #and self.servingBS != None:
-                #snr = self.listedRSRP[self.servingBS] - self.channel['noisePower']
-                snr = max(0, self.servingBSSINR())
-                temp = self.snrThreshold
-                timer = 0
-
-                self.scenarioBasestations[self.servingBS].receivePacket(self, packet)
-
-                # There is a 10 milliseconds tolerance to send a packet
-                while timer < self.networkParameters.retryTimer and self.servingBS != None:
-                    if snr > self.snrThreshold or snr > temp:
-                        self.kpi.deliveryRate += 1
-                        rate = self.scenarioBasestations[self.servingBS].bandwidth*log2(1 + snr)
-                        self.kpi.throughput.append(rate)
-                        self.kpi.delay.append(self.env.now - t)
-                        if self.kpi.delay[-1] < self.delay:
-                            self.kpi.partDelay += 1
-
-                        packetSent = True
-
-                        break
-                    else:
-                        temp *= 0.9
-                        yield self.env.timeout(1)
-                        timer += 1
-
-                if not packetSent:
-                    self.kpi.delay.append(self.env.now - t)
-            '''
 
 class PredictionBaseStation(BaseStation):
     pass
