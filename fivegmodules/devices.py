@@ -421,7 +421,11 @@ class HandoverAssessment(SignalAssessmentPolicy):
         if device.servingBS == None and device.listedRSRP[maxRSRP] > device.sensibility:
             if device.lastBS:
                 #device.reassociation(maxRSRP)
-                device.env.process(device.connectionReestablishment(maxRSRP))
+                #device.env.process(device.connectionReestablishment(maxRSRP))
+                device.kpi.reassociation += 1
+                device.reassociationFlag = True
+
+            device.env.process(device.cellAttachmentProcedure())
             #else:
             #    device.env.process(device.firstAssociation(maxRSRP))
  
@@ -485,15 +489,83 @@ class MeasurementDevice(WirelessDevice):
         for m,bs in enumerate(self.scenarioBasestations):
             self.lineofsight[bs] = los[m][n]
 
+    def cellAttachmentProcedure(self):
+        if not self.cellAttachmentFlag:
+
+            self.cellAttachmentFlag = True
+            counterDRX = 0
+
+            # UE runs some DRX cycle to find a suitable BS
+            while counterDRX < self.networkParameters.numberDRX:
+                yield self.env.timeout(self.networkParameters.DRXlength)
+                self.updateBSList()
+                baseStation = max(self.listedRSRP.items(), key=operator.itemgetter(1))[0]
+
+                if self.listedRSRP[baseStation] >= self.networkParameters.cellSelectionRxLevel:
+                    break
+
+            # Once a good BS is found, then starts the uplink synch
+            yield self.env.timeout(
+                    self.scenarioBasestations[baseStation].nextRach 
+                    + self.networkParameters.SSBurstDuration  - self.env.now
+                    )
+
+            # Send the cell attach/connection reestablishment request
+            if self.listedRSRP[baseStation] >= self.networkParameters.cellSelectionRxLevel:
+                yield self.env.timeout(self.networkParameters.RRCMsgTransmissionDelay
+                                    + self.scenarioBasestations[baseStation].RRCprocessingDelay)
+
+                if baseStation not in self.lastBS:
+                    yield self.env.timeout(self.networkParameters.networkProcessingDelay)
+
+                # Receive a RRC Connection Reconfiguration
+                yield self.env.timeout(self.networkParameters.RRCMsgTransmissionDelay
+                                        + self.handoverCommandProcDelay
+                                        + self.freqReconfigDelay)
+
+                # Send a RRC Reconfiguration Complete
+                yield self.env.timeout(self.networkParameters.RRCMsgTransmissionDelay
+                                    + self.scenarioBasestations[baseStation].RRCprocessingDelay)
+
+                if self.listedRSRP[baseStation] >= self.networkParameters.cellSelectionRxLevel:
+                    self.sync = True
+                    self.servingBS = baseStation
+                    self.kpi.association.append([list(self.scenarioBasestations.keys()).index(self.servingBS),
+                                                    self.env.now])
+
+                    #print('Association complete!', self.env.now)
+                    if self.reassociationFlag:
+                        self.kpi.outofsync[-1].append(self.env.now)
+                        self.reassociationFlag = False
+
+
+            self.cellAttachmentFlag = False
+
+
+
+
+
+
     def firstAssociation(self, baseStation = None):
         if not self.cellAttachmentFlag:
             self.cellAttachmentFlag = True
             #print(self.env.now, 'cell attachment routine')
 
+            counterDRX = 0 
+            while counterDRX < self.networkParameters.numberDRX:
+                yield self.env.timeout(self.networkParameters.DRXlength)
+                self.updateBSList()
+                baseStation = max(self.listedRSRP.items(), key=operator.itemgetter(1))[0]
+                try:
+                    if baseStation == self.lastBS[-1]:
+                        break
+                except:
+                    pass
+                counterDRX += 1
+
+
             ### FIRST TIME USER ASSOCIATON
             if baseStation == None:
-                yield self.env.timeout(5*self.networkParameters.timeToMeasure)
-                self.updateBSList()
                 baseStation = max(self.listedRSRP.items(), key=operator.itemgetter(1))[0]
 
             #print(self.env.now, self.scenarioBasestations[baseStation].nextSSB)
@@ -515,7 +587,9 @@ class MeasurementDevice(WirelessDevice):
                 #if self.listedRSRP[baseStation] > self.networkParameters.qualityOut: 
                 if self.listedRSRP[baseStation] > self.sensibility:
                     # Now, the UE is in sync with the serving BS
-                    yield self.env.timeout(3*self.networkParameters.RRCMsgTransmissionDelay)
+                    yield self.env.timeout(3*self.networkParameters.RRCMsgTransmissionDelay
+                                + self.handoverCommandProcDelay
+                                + 2*self.scenarioBasestations[baseStation].RRCprocessingDelay)
 
                     #print('picked ', baseStation, ' for new cell at', self.env.now)
 
@@ -530,13 +604,16 @@ class MeasurementDevice(WirelessDevice):
             self.cellAttachmentFlag = False
             #print('After', self.sync, self.env.now)
 
+
     def connectionReestablishment(self, baseStation):
         if not self.reassociationFlag:
             #print('Before', self.sync, self.env.now)
             self.kpi.reassociation += 1
             self.reassociationFlag = True
             
-            yield self.env.timeout(3*self.networkParameters.RRCMsgTransmissionDelay)
+            yield self.env.timeout(3*self.networkParameters.RRCMsgTransmissionDelay
+                        + self.handoverCommandProcDelay                
+                        + 2*self.scenarioBasestations[baseStation].RRCprocessingDelay)
 
             yield self.env.process(self.firstAssociation(baseStation))
 
@@ -576,8 +653,14 @@ class MeasurementDevice(WirelessDevice):
                             distance, shadowingStdev=stdev, fadingSample = self.env.now))
 
                 else:
-                    directionBSUE = uniform(0, 2*pi)
+                    reference = 72.0
+                    exponent = 2.92
+                    stdev = 8.7
+
+                    directionBSUE =  bs.calcAngle(self) + pi #uniform(0, 2*pi)
                     angleBSUE = bs.calcAngle(self)
+                    if directionBSUE > 2*pi:
+                        directionBSUE -= 2*pi
                     directionUEBS = self.calcAngle(self.scenarioBasestations[self.servingBS])
                     angleUEBS = self.calcAngle(bs)
 
@@ -665,7 +748,8 @@ class MobileUser(MeasurementDevice):
         self.Vy = Vy
 
     def initializeServices(self, **params):
-        self.env.process(self.firstAssociation())
+        #self.env.process(self.firstAssociation())
+        self.env.process(self.cellAttachmentProcedure())
         self.env.process(self.measurementEvent())
         self.env.process(self.sendingPackets())
         self.env.process(self.connectivityGap())
@@ -841,13 +925,15 @@ class NetworkParameters:
         self.timeToTrigger = 640
         self.timeToMeasure = 40
 
-        self.RRCMsgTransmissionDelay = 5 #milliseconds
+        self.RRCMsgTransmissionDelay = 5 # milliseconds
+        self.networkProcessingDelay = 20 # milliseconds
+        self.cellSelectionRxLevel = -65 # dBm
 
         self.downlinkOverhead = 240 + 800 + 28800 +1000
         self.uplinkOverhead = 240 + 800 + 28800 +1000
 
-        self.qualityOut = -7.2 # dB SINR #-100 #dBm RSRP
-        self.qualityIn = -4.8  # dB SINR #-90 #dB RSRP
+        self.qualityOut = -7.2 # dB SINR #-100 # dBm RSRP
+        self.qualityIn = -4.8  # dB SINR #-90 # dBm RSRP
         self.N310 = 1
         self.qOutMonitorTimer = 200
         self.T310 = 1000
@@ -868,6 +954,9 @@ class NetworkParameters:
         self.retryTimer = 10
 
         self.filterK = 4
+
+        self.DRXlength = 320
+        self.numberDRX = 4
 
     def filterA(self):
         return (1/2**(self.filterK/4))
