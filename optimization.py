@@ -177,6 +177,7 @@ nodes = []
 
 #topdir = 'instances/full-scenario/'
 ### Create base data
+print('Loading Instance...')
 with open(args.inputFile) as json_file:
     try:
         data = json.load(json_file)
@@ -205,6 +206,8 @@ m_bs = len(network)
 
 
 SNR = []
+
+print('Preprocessing...')
 
 ### -------- Beginning of the Preprocessing phase ----------
 #
@@ -235,7 +238,7 @@ for p in range(m_bs):
             beta[p][q].append([])
             temp = []
             for t in range(scenario['simTime']):
-                if SNR[q][n][t] >= SNR[p][n][t] + offset:
+                if 10*np.log10(SNR[q][n][t]) >= 10*np.log10(SNR[p][n][t]) + offset:
                     temp.append(1) 
                 else:
                     temp.append(0)
@@ -268,6 +271,7 @@ model.presolve().setParam(GRB.Param.PreQLinearize,1)
 print('Adding model variables...')
 x = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='x')
 y = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='y')
+z = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='z')
 vars = x
 
 
@@ -281,7 +285,7 @@ for m in range(m_bs):
         for t in range(scenario['simTime']):
             try:
                 model.addConstr(ue['capacity']*x[m,n,t] <= 
-                        R[m]*np.log2(1+SNR[m][n][t]))
+                        R[m]*np.log2(1+SNR[m][n][t]), name='capcity_constr')
             except Exception as error:
                 print('Error at constraint #1 %i %i %i'%(m, n, t))
                 print(error)
@@ -302,8 +306,8 @@ for m, bs in enumerate(network):
             try:
                 model.addConstr(
                         sum(x[m,n,k] for k in range(arrival,arrival+ue['delay']))
-                        == sum(y[m,n,k] for k in range(arrival,arrival+ue['delay']))
-                        )
+                        == sum(y[m,n,k] for k in range(arrival,arrival+ue['delay'])),
+                        name='delay_constr')
             except Exception as error:
                 print('Error at constraint #2 %i %i %i'%(m,n,p))
                 print(error)
@@ -317,7 +321,7 @@ print('Constraints #2 added...')
 for n,ue in enumerate(nodes):
     for t in range(scenario['simTime']):
         try:
-            model.addConstr(sum((SNR[m][n][t] - ue['threshold'])*x[m,n,t] for m in range(m_bs))>= 0)
+            model.addConstr(sum((SNR[m][n][t] - ue['threshold'])*x[m,n,t] for m in range(m_bs))>= 0, name='snr_constr')
         except Exception as error:
             print('Error adding constraint #3 to the model %i %i'%(n,t))
             print(error)
@@ -339,21 +343,25 @@ for p,q in bs_pairs:
             #arrival = ue['packets'][n]
             #if k < ue['nPackets'] - 1:
 
-        for t1 in range(scenario['simTime']-tau):
+        for t1 in range(scenario['simTime']-1):
             #for t2 in range(ue['delay']):
             #    arrival2 = ue['packets'][k+1]
-            t2 = t1 + tau
-            if beta[p][q][n][t2] != 0 and beta[q][p][n][t2] != 0:
-                try:
-                    model.addConstr(x[p,n,t1]*x[p,n,t2] +
-                            beta[p][q][n][t2]*x[p,n,t1]*x[q,n,t2] +
-                            beta[q][p][n][t2]*x[q,n,t1]*x[p,n,t2] +
-                            x[q,n,t1]*x[q,n,t2] <= 1)
+            t2 = t1 + 1 #tau
+            #if beta[p][q][n][t2] != 0:  and beta[q][p][n][t2] != 0:
+            try:
+                '''
+                model.addConstr(x[p,n,t1]*x[p,n,t2] +
+                        beta[p][q][n][t2]*x[p,n,t1]*x[q,n,t2] +
+                        beta[q][p][n][t2]*x[q,n,t1]*x[p,n,t2] +
+                        x[q,n,t1]*x[q,n,t2] <= 1)
+                model.addConstr(beta[p][q][n][t2]*x[p,n,t1]*x[q,n,t2] <= 1)
+                '''
+                model.addConstr((x[p,n,t1]*x[q,n,t2]) <= beta[p][q][n][t2], name='handover_constr')
 
-                except Exception as error:
-                    print('Error adding constraint #4 to the model %i %i %i %i'%(p,q,n,t1))
-                    print(error)
-                    exit()
+            except Exception as error:
+                print('Error adding constraint #4 to the model %i %i %i %i'%(p,q,n,t1))
+                print(error)
+                exit()
 
             '''
             model.addConstr(y[p][n][arrival+t1]*y[p][n][arrival2+t2] +
@@ -368,7 +376,8 @@ print('Constraints #4 added...')
 for n,ue in enumerate(nodes):
     #model.addConstr(sum(sum(x[m,n,t] for t in range(scenario['simTime'])) for m in range(m_bs)) <= scenario['simTime']) #ue['nPackets'])
     try:
-        model.addConstr(sum(sum(y[m,n,t] for t in range(scenario['simTime'])) for m in range(m_bs)) <= ue['nPackets'])
+        model.addConstr(sum(sum(y[m,n,t] for t in range(scenario['simTime'])) for m in range(m_bs)) <= ue['nPackets'], 
+                        name='delay_pkt_constr')
     except Exception as error:
         print('Error adding constraint #5b to the model')
         print(error)
@@ -382,7 +391,7 @@ for n,ue in enumerate(nodes):
     for p in range(ue['nPackets']):
         arrival = ue['packets'][p]
         try:
-            model.addConstr(sum(sum(y[m,n,t] for t in range(arrival,arrival+ue['delay'])) for m in range(m_bs)) <= 1)
+            model.addConstr(sum(sum(y[m,n,t] for t in range(arrival,arrival+ue['delay'])) for m in range(m_bs)) <= 1, name='constr_6')
         except Exception as error:
             print('Error adding constraint #6 to the model %i %i'%(n,p))
             print(error)
@@ -397,24 +406,26 @@ for n,ue in enumerate(nodes):
         arrival = ue['packets'][p]
         # Y must be equal to 0 until the first packet arrives
         if p == 0:
-            model.addConstr(sum(sum(y[m,n,t] for t in range(arrival)) for m in range(m_bs)) == 0)
+            model.addConstr(sum(sum(y[m,n,t] for t in range(arrival)) for m in range(m_bs)) == 0, name='constr_7a')
 
         # From the arrival of the last packet plus the tolerable delay until 
         # the end of simulation Y must be equal to 0
         if p == ue['nPackets']-1:
-            model.addConstr(sum(sum(y[m,n,t] for t in range(arrival+ue['delay'],scenario['simTime'])) for m in range(m_bs)) == 0)
+            model.addConstr(sum(sum(y[m,n,t] for t in range(arrival+ue['delay'],scenario['simTime'])) for m in range(m_bs)) == 0,
+                            name='constr_7b')
 
         # Between packets, Y must be equal to zero
         else:
-            model.addConstr(sum(sum(y[m,n,t] for t in range(arrival+ue['delay'],ue['packets'][p+1])) for m in range(m_bs)) == 0)
+            model.addConstr(sum(sum(y[m,n,t] for t in range(arrival+ue['delay'],ue['packets'][p+1])) for m in range(m_bs)) == 0,
+                            name='constr_7c')
 
 
 # 8 - LOS condition and UE association limit constraint. Each UE can be associate with only one BS
 for n in range(n_ue):
     for t in range(scenario['simTime']):
         try:
-            model.addConstr(sum(x[m,n,t] for m in range(m_bs)) <=1)
-            model.addConstr(sum(y[m,n,t] for m in range(m_bs)) <=1)
+            model.addConstr(sum(x[m,n,t] for m in range(m_bs)) <=1, name='constr_8')
+            model.addConstr(sum(y[m,n,t] for m in range(m_bs)) <=1, name='constr_8')
         except Exception as error:
             print('Error adding constraint #8 to the model %i %i'%(n,t))
             print(error)
