@@ -9,13 +9,16 @@ from gurobipy import GRB
 import argparse
 import sys
 from matplotlib import pyplot as plt
+import time
 
 from decompressor import decompressor
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-i','--inputFile', help='Instance json input file')
+parser.add_argument('-o','--outputFile', default='results', help='outputs json result file')
 parser.add_argument('-p','--plot', action='store_true', help='Enables plot')
 parser.add_argument('-s','--save', action='store_true', help='Save statistics')
+parser.add_argument('-t','--threads', type=int, help='Number of threads', default=3)
 parser.add_argument('--ttt', type=int, default=640)
 
 
@@ -178,6 +181,7 @@ nodes = []
 #topdir = 'instances/full-scenario/'
 ### Create base data
 print('Loading Instance...')
+start = time.time()
 with open(args.inputFile) as json_file:
     try:
         data = json.load(json_file)
@@ -204,11 +208,14 @@ for ue in nodes:
 n_ue = len(nodes)
 m_bs = len(network)
 
+end = time.time()
+print(end - start)
 
 SNR = []
 
 print('Preprocessing...')
 
+start = time.time()
 ### -------- Beginning of the Preprocessing phase ----------
 #
 # SNR evaluation
@@ -253,6 +260,9 @@ R = []
 for bs in network:
     bw_per_rb = 12*bs['subcarrierSpacing'] #12 subcarriers per resouce block times 120kHz subcarrier spacing
     R.append(bw_per_rb*bs['resourceBlocks'])
+
+end = time.time()
+print(end - start)
 ### ----------- End of preprocessing phase ---------------
 
 
@@ -264,19 +274,24 @@ model = gb.Model('newModel', optEnv)
 
 ### Quadratic constraints control
 model.presolve().setParam(GRB.Param.PreQLinearize,1)
+model.setParam(GRB.Param.Threads, args.threads)
 
 
 
 ### Add variables to the model
+start = time.time()
 print('Adding model variables...')
 x = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='x')
 y = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='y')
 z = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='z')
 vars = x
+end = time.time()
+print(end - start)
 
 
 ### Add constraints to the model
 print('Adding model Constraints...')
+start = time.time()
 #
 # 1 - Capacity requirement constraint
 #   - Blockage constraint added
@@ -434,6 +449,8 @@ for n in range(n_ue):
 print('Constraint #8 added...')
 
 
+end = time.time()
+print(end - start)
 '''
 # 9 - Delay and Capacity requirements coupling
 for m in range(m_bs):
@@ -447,6 +464,7 @@ for m in range(m_bs):
 # 1 - Maximize the number of users which delay and capacity requirements were
 # fulfilled
 print('Setting model objective function...')
+start = time.time()
 model.setObjective(
         sum(
             sum(
@@ -467,15 +485,24 @@ model.Params.lazyConstraints = 1
 
 model.write('myModel.lp')
 
+end = time.time()
+print(end - start)
+
 ### Compute optimal Solution
+start = time.time()
 try:
     print('Begining Optimization')
     model.optimize()#handover_callback)
+    end = time.time()
+    print(end - start)
 
 except gb.GurobiError as error:
     print('Optimize  failed\n\n')
     print(error)
+    end = time.time()
+    print(end - start)
     sys.exit()
+
 
 
 ##################### Collecting network results ##############################
@@ -484,7 +511,7 @@ print('Generating results...')
 kpi = getKpi(x, y, m_bs, 0, scenario['simTime'], SNR, R, nodes[0]['nPackets'])
 
 if args.save:
-    filename = 'instances/opt/'+args.inputFile
+    filename = 'instances/opt/'+args.outfile
     with open(filename, 'w') as jsonfile:
         json.dump(kpi, jsonfile, indent=4)
 
@@ -510,6 +537,7 @@ if args.plot:
     plt.ylabel('SNR')
     plt.xlabel('Time (mS)')
     plt.legend()
+    plt.savefig('snr.png')
     plt.show()
 
 
