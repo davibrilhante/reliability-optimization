@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding : utf8 -*-
 
 
@@ -10,7 +10,10 @@ import argparse
 import sys
 from matplotlib import pyplot as plt
 import time
+from multiprocessing import Process, Manager, Queue, Pool
 
+
+from add_constraints import add_all_constraints
 from decompressor import decompressor
 
 parser = argparse.ArgumentParser()
@@ -60,8 +63,8 @@ def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
             if x[m,n,t].getAttr('X') == 1:
                 if (len(associated[0]) > 0 and associated[0][-1] != m) or len(associated[0])==0:
                     if len(associated[0]) > 1: 
-                        associated[2].append(SNR[m][n_ue][t] - 
-                                SNR[associated[0][-1]][n_ue][t-args.ttt])
+                        associated[2].append(10*np.log10(SNR[m][n_ue][t]) - 
+                                10*np.log10(SNR[associated[0][-1]][n_ue][t-args.ttt]))
                     else:
                         associated[2].append(0)
 
@@ -199,9 +202,11 @@ with open(args.inputFile) as json_file:
     for p in data['userEquipment']:
         nodes.append(p)
 
-#scenario['simTime'] = min(12000, scenario['simTime'])
+scenario['simTime'] = min(22500, scenario['simTime'])
+
 for ue in nodes:
-    ue['nPackets'] = int(scenario['simTime']/500 - 1)
+    ue['nPackets'] = int(scenario['simTime']/120 - 1)
+    ue['packets'] = ue['packets'][:ue['nPackets']]
     ue['capacity'] = 750e6 #Bits per second
     ue['threshold'] = 10**(ue['threshold']/10)
 
@@ -241,18 +246,26 @@ for p in range(m_bs):
     beta.append([])
     for q in range(m_bs):
         beta[p].append([])
-        for n in range(n_ue):
-            beta[p][q].append([])
-            temp = []
-            for t in range(scenario['simTime']):
-                if 10*np.log10(SNR[q][n][t]) >= 10*np.log10(SNR[p][n][t]) + offset:
-                    temp.append(1) 
-                else:
-                    temp.append(0)
-                if t>tau and sum(temp[t-tau:t])==tau:
-                    beta[p][q][n].append(1)
-                else:
-                    beta[p][q][n].append(0)
+        if p != q:
+            for n in range(n_ue):
+                beta[p][q].append([])
+                temp = []
+                for t in range(scenario['simTime']):
+                    if 10*np.log10(SNR[q][n][t]) >= 10*np.log10(SNR[p][n][t]) + offset:
+                        temp.append(1) 
+                    else:
+                        temp.append(0)
+                    if t>tau and sum(temp[t-tau:t])>=tau:
+                        beta[p][q][n].append(1)
+                    else:
+                        beta[p][q][n].append(0)
+                    '''
+                    if sum(temp[t-tau:t])>=tau:
+                        print('Is possible to handover from %i to %i at %i'%(p,q,t))
+                    '''
+
+print(beta[0][1][0][17283:17287])
+print(beta[1][0][0][17283:17287])
 
 
 # Resource blocks attribution
@@ -264,7 +277,6 @@ for bs in network:
 end = time.time()
 print(end - start)
 ### ----------- End of preprocessing phase ---------------
-
 
 
 ### Create environment and model
@@ -283,171 +295,17 @@ start = time.time()
 print('Adding model variables...')
 x = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='x')
 y = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='y')
-z = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='z')
+#z = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='z')
 vars = x
 end = time.time()
 print(end - start)
 
-
-### Add constraints to the model
+start = time.time()
 print('Adding model Constraints...')
 start = time.time()
-#
-# 1 - Capacity requirement constraint
-#   - Blockage constraint added
-for m in range(m_bs):
-    for n,ue in enumerate(nodes):
-        for t in range(scenario['simTime']):
-            try:
-                model.addConstr(ue['capacity']*x[m,n,t] <= 
-                        R[m]*np.log2(1+SNR[m][n][t]), name='capcity_constr')
-            except Exception as error:
-                print('Error at constraint #1 %i %i %i'%(m, n, t))
-                print(error)
-                exit()
 
-print('Constraints #1 added...')
-
-
-# 2 - Delay requirement constraints
-for m, bs in enumerate(network):
-    for n,ue in enumerate(nodes):
-        #for p, arrival in enumerate(ue['packets']):
-        for p in range(ue['nPackets']):
-            arrival = ue['packets'][p]
-            #model.addConstr(sum(sum(x[m][n][k] for k in range(arrival,arrival+ue['delay'])) for m in range(m_bs))
-            #        == sum(sum(y[m][n][k] for k in range(arrival,arrival+ue['delay'])) for m in range(m_bs)))
-
-            try:
-                model.addConstr(
-                        sum(x[m,n,k] for k in range(arrival,arrival+ue['delay']))
-                        == sum(y[m,n,k] for k in range(arrival,arrival+ue['delay'])),
-                        name='delay_constr')
-            except Exception as error:
-                print('Error at constraint #2 %i %i %i'%(m,n,p))
-                print(error)
-                exit()
-
-print('Constraints #2 added...')
-
-
-# 3 - If the Received power is under the threshold, then the transmission cannot occur through this BS
-#for m in range(m_bs):
-for n,ue in enumerate(nodes):
-    for t in range(scenario['simTime']):
-        try:
-            model.addConstr(sum((SNR[m][n][t] - ue['threshold'])*x[m,n,t] for m in range(m_bs))>= 0, name='snr_constr')
-        except Exception as error:
-            print('Error adding constraint #3 to the model %i %i'%(n,t))
-            print(error)
-            exit()
-
-print('Constraints #3 added...')
-
-bs_pairs = []
-for i in range(m_bs):
-    for j in range(m_bs):
-        if i!=j:
-            bs_pairs.append([i,j])
-
-# 4 - Handover definition constraint
-for p,q in bs_pairs:
-    for n,ue in enumerate(nodes):
-
-        #for k in range(ue['nPackets']):
-            #arrival = ue['packets'][n]
-            #if k < ue['nPackets'] - 1:
-
-        for t1 in range(scenario['simTime']-1):
-            #for t2 in range(ue['delay']):
-            #    arrival2 = ue['packets'][k+1]
-            t2 = t1 + 1 #tau
-            #if beta[p][q][n][t2] != 0:  and beta[q][p][n][t2] != 0:
-            try:
-                '''
-                model.addConstr(x[p,n,t1]*x[p,n,t2] +
-                        beta[p][q][n][t2]*x[p,n,t1]*x[q,n,t2] +
-                        beta[q][p][n][t2]*x[q,n,t1]*x[p,n,t2] +
-                        x[q,n,t1]*x[q,n,t2] <= 1)
-                model.addConstr(beta[p][q][n][t2]*x[p,n,t1]*x[q,n,t2] <= 1)
-                '''
-                model.addConstr((x[p,n,t1]*x[q,n,t2]) <= beta[p][q][n][t2], name='handover_constr')
-
-            except Exception as error:
-                print('Error adding constraint #4 to the model %i %i %i %i'%(p,q,n,t1))
-                print(error)
-                exit()
-
-            '''
-            model.addConstr(y[p][n][arrival+t1]*y[p][n][arrival2+t2] +
-                    beta[p][q][n][arrival+t2]*y[p][n][arrival+t1]*y[q][n][arrival2+t2] +
-                    beta[q][p][n][arrival+t2]*y[q][n][arrival+t1]*y[p][n][arrival2+t2] +
-                    y[q][n][arrival+t1]*y[q][n][arrival2+t2] <= 1)
-            '''
-
-print('Constraints #4 added...')
-
-# 5 - 
-for n,ue in enumerate(nodes):
-    #model.addConstr(sum(sum(x[m,n,t] for t in range(scenario['simTime'])) for m in range(m_bs)) <= scenario['simTime']) #ue['nPackets'])
-    try:
-        model.addConstr(sum(sum(y[m,n,t] for t in range(scenario['simTime'])) for m in range(m_bs)) <= ue['nPackets'], 
-                        name='delay_pkt_constr')
-    except Exception as error:
-        print('Error adding constraint #5b to the model')
-        print(error)
-        exit()
-
-print('Constraints #5 added...')
-        
-
-# 6 - Y can be equal to 1 only inside the delay interval
-for n,ue in enumerate(nodes):
-    for p in range(ue['nPackets']):
-        arrival = ue['packets'][p]
-        try:
-            model.addConstr(sum(sum(y[m,n,t] for t in range(arrival,arrival+ue['delay'])) for m in range(m_bs)) <= 1, name='constr_6')
-        except Exception as error:
-            print('Error adding constraint #6 to the model %i %i'%(n,p))
-            print(error)
-            exit()
-
-print('Constraints #6 added...')
-
-
-# 7 - There is no transmission to an UE before it arrives, also y cannot be 1 if after the delay interval
-for n,ue in enumerate(nodes):
-    for p in range(ue['nPackets']):
-        arrival = ue['packets'][p]
-        # Y must be equal to 0 until the first packet arrives
-        if p == 0:
-            model.addConstr(sum(sum(y[m,n,t] for t in range(arrival)) for m in range(m_bs)) == 0, name='constr_7a')
-
-        # From the arrival of the last packet plus the tolerable delay until 
-        # the end of simulation Y must be equal to 0
-        if p == ue['nPackets']-1:
-            model.addConstr(sum(sum(y[m,n,t] for t in range(arrival+ue['delay'],scenario['simTime'])) for m in range(m_bs)) == 0,
-                            name='constr_7b')
-
-        # Between packets, Y must be equal to zero
-        else:
-            model.addConstr(sum(sum(y[m,n,t] for t in range(arrival+ue['delay'],ue['packets'][p+1])) for m in range(m_bs)) == 0,
-                            name='constr_7c')
-
-
-# 8 - LOS condition and UE association limit constraint. Each UE can be associate with only one BS
-for n in range(n_ue):
-    for t in range(scenario['simTime']):
-        try:
-            model.addConstr(sum(x[m,n,t] for m in range(m_bs)) <=1, name='constr_8')
-            model.addConstr(sum(y[m,n,t] for m in range(m_bs)) <=1, name='constr_8')
-        except Exception as error:
-            print('Error adding constraint #8 to the model %i %i'%(n,t))
-            print(error)
-            exit()
-
-print('Constraint #8 added...')
-
+Vars = [x, y]
+add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario)
 
 end = time.time()
 print(end - start)
@@ -471,7 +329,7 @@ model.setObjective(
                 sum(
                     #(1-gamma[m][n][t])*(x[m][n][t]+y[m][n][t]) 
                     (x[m,n,t]+y[m,n,t]) 
-                    #SNR[m][n][t]*(x[m][n][t]+y[m][n][t]) 
+                    #SNR[m][n][t]*(x[m,n,t]+y[m,n,t]) 
                     for t in range(scenario['simTime'])) 
                 for n in range(n_ue)) 
             for m in range(m_bs)), 
@@ -511,7 +369,7 @@ print('Generating results...')
 kpi = getKpi(x, y, m_bs, 0, scenario['simTime'], SNR, R, nodes[0]['nPackets'])
 
 if args.save:
-    filename = 'instances/opt/'+args.outfile
+    filename = 'instances/opt/'+args.outputFile
     with open(filename, 'w') as jsonfile:
         json.dump(kpi, jsonfile, indent=4)
 
@@ -522,6 +380,7 @@ results = json.dumps(kpi, indent=4)
 if args.plot:
     print('Ploting SNR')
     plot = []
+    colors = ['blue', 'orange', 'green', 'red']
     for m in range(m_bs):
         plot.append([])
         time = []
@@ -532,7 +391,36 @@ if args.plot:
                 #print(t, SNR[m][0][t])
 
         #plt.plot(plot)
-        plt.scatter(time,plot[-1], label=m)
+        if plot[-1]:
+            plt.scatter(time,plot[-1], label=m, color=colors[m])
+
+    plot = []
+    for m in range(4):
+        plot.append([])
+        time = []
+        for t in range(scenario['simTime']):
+            if t%100 == 0:
+                plot[-1].append(10*np.log10(SNR[m][0][t]))
+                time.append(t)
+                #print(t, SNR[m][0][t])
+
+        #plt.plot(plot)
+        plt.scatter(time,plot[-1], marker = '+', color = colors[m])
+
+
+    plot = []
+    for m in range(m_bs):
+        plot.append([])
+        time = []
+        for t in range(scenario['simTime']):
+            if y[m,0,t].getAttr('X') == 1:
+                plot[-1].append(0)
+                time.append(t)
+                #print(t, SNR[m][0][t])
+
+        #plt.plot(plot)
+        if plot[-1]:
+            plt.scatter(time,plot[-1],marker='s', color=colors[m])
 
     plt.ylabel('SNR')
     plt.xlabel('Time (mS)')
@@ -544,3 +432,8 @@ if args.plot:
 print('obj: %g'% model.objVal)
 print('X: %g'% x.sum('*','*','*').getValue())
 print('Y: %g'% y.sum('*','*','*').getValue())
+
+'''
+if __name__ == '__main__':
+    1
+'''
