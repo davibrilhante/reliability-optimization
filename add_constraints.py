@@ -75,7 +75,7 @@ def gen_constraint_4(x, z, b, m_bs, n_ue, beta, simTime, gen_dict, interval=1):
                     for n in range(n_ue)
                         for p, q in bs_pairs)
     '''
-    generator = (z[p,q,n,t] == and_(x[p,n,t],x[q,n,t+interval],b[p,q,n,t])
+    generator = (z[p,q,n,t] == gb.and_(x[p,n,t],x[q,n,t+interval],b[p,q,n,t])
                 for t in range(simTime - interval)
                     for n in range(n_ue)
                         for p, q in bs_pairs)
@@ -180,8 +180,8 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
         exit()
 
     n_ue = len(nodes)
-    #gen_auxiliar_4(b, beta, m_bs, n_ue, scenario['simTime'], constrs_dict, interval)
-    #gen_constraint_4(x, z, b, m_bs, n_ue, beta, scenario['simTime'], constrs_dict)
+    gen_auxiliar_4(b, beta, m_bs, n_ue, scenario['simTime'], constrs_dict, interval)
+    gen_constraint_4(x, z, b, m_bs, n_ue, beta, scenario['simTime'], constrs_dict)
     
     bs_pairs = []
     for i in range(m_bs):
@@ -190,13 +190,15 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
                 bs_pairs.append([i,j])
 
     try:
-        #model.addConstrs(constrs_dict['auxiliar_4'], name='handover_auxiliar')
-        #model.addConstrs(constrs_dict['constrs_4'], name='handover_constr')
+        model.addConstrs(constrs_dict['auxiliar_4'], name='handover_auxiliar')
+        model.addConstrs(constrs_dict['constrs_4'], name='handover_constr')
+        '''
         model.addConstrs(z[p,q,n,t] == gb.and_(x[p,n,t],x[q,n,t+interval],b[p,q,n,t])
                                         for t in range(scenario['simTime'] - interval)
                                             for n in range(n_ue)
                                                 for p, q in bs_pairs)
 
+        '''
         print('Constraints #4 added...')
 
     except Exception as error:
