@@ -10,6 +10,7 @@ import argparse
 import sys
 from matplotlib import pyplot as plt
 import time
+import operator
 from multiprocessing import Process, Manager, Queue, Pool
 
 
@@ -244,28 +245,45 @@ offset = 3
 beta = []
 for p in range(m_bs):
     beta.append([])
+    handover_points = {n:{} for n in range(n_ue) }
     for q in range(m_bs):
         beta[p].append([])
         if p != q:
             for n in range(n_ue):
                 beta[p][q].append([])
-                temp = []
+                counter = 0
+                snr_accumulator = []
                 for t in range(scenario['simTime']):
-                    if 10*np.log10(SNR[q][n][t]) >= 10*np.log10(SNR[p][n][t]) + offset:
-                        temp.append(1) 
+                    diff = 10*np.log10(SNR[q][n][t]) - 10*np.log10(SNR[p][n][t]) + offset
+                    beta[p][q][n].append(0)
+
+                    if diff > 0:
+                        counter += 1
+                        snr_accumulator.append(diff)
                     else:
-                        temp.append(0)
-                    if t>tau and sum(temp[t-tau:t])>=tau:
-                        beta[p][q][n].append(1)
+                        counter = 0
+                        snr_accumulator = []
+
+                    if t>tau and counter >= tau: # sum(temp[t-tau:t])>=tau:
+                        try:
+                            handover_points[n][t].append([q, np.mean(snr_accumulator)])
+                        except KeyError:
+                            handover_points[n][t] = [[q, np.mean(snr_accumulator)]]
+                    '''
                     else:
                         beta[p][q][n].append(0)
-                    '''
+
                     if sum(temp[t-tau:t])>=tau:
                         print('Is possible to handover from %i to %i at %i'%(p,q,t))
                     '''
+    for n in range(n_ue):
+        for t in handover_points[n].keys():
+            best_bs = max(handover_points[n][t], key=operator.itemgetter(1))
+            #print(p, t, best_bs)
+            beta[p][best_bs[0]][n][t] = 1
 
-print(beta[0][1][0][17283:17287])
-print(beta[1][0][0][17283:17287])
+
+
 
 
 # Resource blocks attribution
@@ -295,7 +313,9 @@ start = time.time()
 print('Adding model variables...')
 x = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='x')
 y = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='y')
-#z = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='z')
+z = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='z')
+b = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='b')
+
 vars = x
 end = time.time()
 print(end - start)
@@ -304,7 +324,7 @@ start = time.time()
 print('Adding model Constraints...')
 start = time.time()
 
-Vars = [x, y]
+Vars = [x, y, z, b]
 add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario)
 
 end = time.time()
