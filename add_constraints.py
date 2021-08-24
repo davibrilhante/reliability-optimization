@@ -55,7 +55,7 @@ def gen_auxiliar_4(b, beta, m_bs, n_ue, simTime, gen_dict, interval=1):
             if i != j:
                 bs_pairs.append([i,j])
 
-    generator = ( b[p,q,n,t] == beta[p][q][n][t][t+interval]
+    generator = ( b[p,q,n,t] == beta[p][q][n][t+interval]
                     for t in range(simTime - interval)
                         for n in range(n_ue)
                             for p,q in bs_pairs)
