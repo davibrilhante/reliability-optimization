@@ -83,7 +83,7 @@ def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
     kpi['pingpong'] = rate 
     kpi['association'] = []
     for i in range(kpi['handover']+1):
-        if i != (kpi['handover']-1):
+        if i != (kpi['handover']):
             kpi['association'].append([associated[0][i], associated[1][i], associated[1][i+1]-1, associated[2][i]])
         else:
             kpi['association'].append([associated[0][i], associated[1][i], simTime, associated[2][i]])
