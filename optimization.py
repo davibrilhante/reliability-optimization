@@ -41,7 +41,6 @@ def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
     for m in range(m_bs):
         for t in range(simTime):
             if x[m,n_ue,t].getAttr('X') == 1:
-                kpi['deliveryRate']+=1
                 #val = x[m][n_ue][t]*SNR[m][n_ue][t]
                 val = x[m,n_ue,t].getAttr('X')*SNR[m][n_ue][t]
                 linearSnr.append(val)
@@ -49,6 +48,7 @@ def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
                 cap.append(BW[m]*np.log2(1+val))
 
             if y[m,n_ue,t].getAttr('X')==1:
+                kpi['deliveryRate']+=1
                 kpi['partDelay']+=1
 
     kpi['deliveryRate']/=nPackets
@@ -203,7 +203,7 @@ with open(args.inputFile) as json_file:
     for p in data['userEquipment']:
         nodes.append(p)
 
-scenario['simTime'] = min(22500, scenario['simTime'])
+scenario['simTime'] = min(17500, scenario['simTime'])
 
 for ue in nodes:
     ue['nPackets'] = int(scenario['simTime']/120 - 1)
@@ -225,6 +225,7 @@ start = time.time()
 ### -------- Beginning of the Preprocessing phase ----------
 #
 # SNR evaluation
+print('SNR Evaluation...')
 for m, bs in enumerate(network):
     SNR.append([])
     for n,ue in enumerate(nodes):
@@ -241,23 +242,27 @@ for m, bs in enumerate(network):
 
 # Creating Beta array (handover flag)
 tau = args.ttt
-offset = 3 
+offset = 3 #dB 
+hysteresis = 0 #db
 beta = []
-for p in range(m_bs):
-    beta.append([])
-    handover_points = {n:{} for n in range(n_ue) }
-    for q in range(m_bs):
-        beta[p].append([])
-        if p != q:
-            for n in range(n_ue):
+print('Generating Beta Array...')
+for n in range(n_ue):
+    for p in range(m_bs):
+        print('Base Station %i'%(p))
+        beta.append([])
+        handover_points = {}
+        for q in range(m_bs):
+            beta[p].append([])
+            counter = 0
+            if p != q:
                 beta[p][q].append([])
-                counter = 0
                 snr_accumulator = []
                 for t in range(scenario['simTime']):
-                    diff = 10*np.log10(SNR[q][n][t]) - 10*np.log10(SNR[p][n][t]) + offset
+                    diff = 10*np.log10(SNR[q][n][t]) - (10*np.log10(SNR[p][n][t]) + 
+                             offset + 2*hysteresis)
                     beta[p][q][n].append(0)
 
-                    if diff > 0:
+                    if diff >= 0:
                         counter += 1
                         snr_accumulator.append(diff)
                     else:
@@ -265,10 +270,11 @@ for p in range(m_bs):
                         snr_accumulator = []
 
                     if t>tau and counter >= tau: # sum(temp[t-tau:t])>=tau:
+                        counter = 0
                         try:
-                            handover_points[n][t].append([q, np.mean(snr_accumulator)])
+                            handover_points[t].append([q, np.mean(snr_accumulator)])
                         except KeyError:
-                            handover_points[n][t] = [[q, np.mean(snr_accumulator)]]
+                            handover_points[t] = [[q, np.mean(snr_accumulator)]]
                     '''
                     else:
                         beta[p][q][n].append(0)
@@ -276,10 +282,10 @@ for p in range(m_bs):
                     if sum(temp[t-tau:t])>=tau:
                         print('Is possible to handover from %i to %i at %i'%(p,q,t))
                     '''
-    for n in range(n_ue):
-        for t in handover_points[n].keys():
-            best_bs = max(handover_points[n][t], key=operator.itemgetter(1))
-            #print(p, t, best_bs)
+        for t in handover_points.keys():
+            best_bs = max(handover_points[t], key=operator.itemgetter(1))
+            print(p, t, best_bs, 10*np.log10(SNR[p][n][t]), 
+                    10*np.log10(SNR[best_bs[0]][n][t]))
             beta[p][best_bs[0]][n][t] = 1
 
 
@@ -400,7 +406,7 @@ results = json.dumps(kpi, indent=4)
 if args.plot:
     print('Ploting SNR')
     plot = []
-    colors = ['blue', 'orange', 'green', 'red']
+    #colors = ['blue', 'orange', 'green', 'red']
     for m in range(m_bs):
         plot.append([])
         time = []
@@ -412,7 +418,7 @@ if args.plot:
 
         #plt.plot(plot)
         if plot[-1]:
-            plt.scatter(time,plot[-1], label=m, color=colors[m])
+            plt.scatter(time,plot[-1], label=m)#, color=colors[m])
 
     plot = []
     for m in range(4):
@@ -425,7 +431,7 @@ if args.plot:
                 #print(t, SNR[m][0][t])
 
         #plt.plot(plot)
-        plt.scatter(time,plot[-1], marker = '+', color = colors[m])
+        plt.scatter(time,plot[-1], marker = '+')#, color = colors[m])
 
 
     plot = []
@@ -440,7 +446,7 @@ if args.plot:
 
         #plt.plot(plot)
         if plot[-1]:
-            plt.scatter(time,plot[-1],marker='s', color=colors[m])
+            plt.scatter(time,plot[-1],marker='s')#, color=colors[m])
 
     plt.ylabel('SNR')
     plt.xlabel('Time (mS)')
