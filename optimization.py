@@ -203,7 +203,7 @@ with open(args.inputFile) as json_file:
     for p in data['userEquipment']:
         nodes.append(p)
 
-scenario['simTime'] = min(17500, scenario['simTime'])
+scenario['simTime'] = min(5000, scenario['simTime'])
 
 for ue in nodes:
     ue['nPackets'] = int(scenario['simTime']/120 - 1)
@@ -254,9 +254,9 @@ for n in range(n_ue):
         for q in range(m_bs):
             beta[p].append([])
             counter = 0
+            snr_accumulator = []
             if p != q:
                 beta[p][q].append([])
-                snr_accumulator = []
                 for t in range(scenario['simTime']):
                     diff = 10*np.log10(SNR[q][n][t]) - (10*np.log10(SNR[p][n][t]) + 
                              offset + 2*hysteresis)
@@ -264,12 +264,14 @@ for n in range(n_ue):
 
                     if diff >= 0:
                         counter += 1
-                        snr_accumulator.append(diff)
+                        snr_accumulator.append(10*np.log10(SNR[q][n][t]))
+
                     else:
                         counter = 0
                         snr_accumulator = []
 
-                    if t>tau and counter >= tau: # sum(temp[t-tau:t])>=tau:
+                    if counter >= tau: # sum(temp[t-tau:t])>=tau:
+                        print(p, q, t)
                         counter = 0
                         try:
                             handover_points[t].append([q, np.mean(snr_accumulator)])
@@ -283,13 +285,16 @@ for n in range(n_ue):
                         print('Is possible to handover from %i to %i at %i'%(p,q,t))
                     '''
         for t in handover_points.keys():
+            #print(handover_points[t])
             best_bs = max(handover_points[t], key=operator.itemgetter(1))
             print(p, t, best_bs, 10*np.log10(SNR[p][n][t]), 
                     10*np.log10(SNR[best_bs[0]][n][t]))
             beta[p][best_bs[0]][n][t] = 1
 
-
-
+print('3', LOS[3][0][1350:1356], SNR[3][0][1350:1356])
+for q in range(m_bs):
+    if q != 3:
+        print(q, beta[3][q][0][1350:1356], LOS[q][0][1350:1356], SNR[q][0][1350:1356]) 
 
 
 # Resource blocks attribution
@@ -317,8 +322,10 @@ model.setParam(GRB.Param.Threads, args.threads)
 ### Add variables to the model
 start = time.time()
 print('Adding model variables...')
+w = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='w')
 x = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='x')
 y = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='y')
+u = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='u')
 z = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='z')
 b = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='b')
 
@@ -330,7 +337,7 @@ start = time.time()
 print('Adding model Constraints...')
 start = time.time()
 
-Vars = [x, y, z, b]
+Vars = [x, y, z, b, w, u]
 add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario)
 
 end = time.time()
@@ -354,8 +361,8 @@ model.setObjective(
             sum(
                 sum(
                     #(1-gamma[m][n][t])*(x[m][n][t]+y[m][n][t]) 
-                    (x[m,n,t]+y[m,n,t]) 
-                    #SNR[m][n][t]*(x[m,n,t]+y[m,n,t]) 
+                    #(x[m,n,t]+y[m,n,t]) 
+                    (SNR[m][n][t]*x[m,n,t])+y[m,n,t]
                     for t in range(scenario['simTime'])) 
                 for n in range(n_ue)) 
             for m in range(m_bs)), 
@@ -365,7 +372,7 @@ model.setObjective(
 model._vars = vars
 model._beta = gb.tuplelist(beta)
 
-model.Params.lazyConstraints = 1
+#model.Params.lazyConstraints = 1
 
 model.write('myModel.lp')
 
@@ -391,6 +398,12 @@ except gb.GurobiError as error:
 
 ##################### Collecting network results ##############################
 print('Generating results...')
+print(beta[4][3][0][2210:2216])
+print(beta[3][4][0][2210:2216])
+print('x', x[3,0,1350].x, x[3,0,1351].x, x[3,0,1352].x)
+print('u', u[3,0,1350].x, u[3,0,1351].x, u[3,0,1352].x)
+print('b', b[3,4,0,1350].x, b[3,4,0,1351].x, b[3,4,0,1352].x)
+print('z', z[3,4,0,1350].x, z[3,4,0,1351].x, z[3,4,0,1352].x)
 
 kpi = getKpi(x, y, m_bs, 0, scenario['simTime'], SNR, R, nodes[0]['nPackets'])
 
@@ -401,12 +414,24 @@ if args.save:
 
 results = json.dumps(kpi, indent=4)
 #print(results)
+#print(beta)
 
 ############################## PLOT SECTION ###################################
 if args.plot:
     print('Ploting SNR')
     plot = []
     #colors = ['blue', 'orange', 'green', 'red']
+    '''
+    oldv = ''
+    for v in model.getVars():
+        varname = v.varName.split('[')
+        if varname[0] != oldv:
+            print('---',varname[0])
+            oldv = varname[0]
+        if v.x != 0:
+            print('  %s %g' % (v.varName, v.x))
+    '''
+
     for m in range(m_bs):
         plot.append([])
         time = []
@@ -421,7 +446,7 @@ if args.plot:
             plt.scatter(time,plot[-1], label=m)#, color=colors[m])
 
     plot = []
-    for m in range(4):
+    for m in range(5):
         plot.append([])
         time = []
         for t in range(scenario['simTime']):
@@ -431,7 +456,7 @@ if args.plot:
                 #print(t, SNR[m][0][t])
 
         #plt.plot(plot)
-        plt.scatter(time,plot[-1], marker = '+')#, color = colors[m])
+        plt.scatter(time,plot[-1], marker = '+', label=m)#, color = colors[m])
 
 
     plot = []
