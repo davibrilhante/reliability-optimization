@@ -28,6 +28,9 @@ parser.add_argument('--ttt', type=int, default=640)
 
 args = parser.parse_args()
 
+def todb(x : float) -> float:
+    return 10*np.log10(x)
+
 def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
     #create dict
     kpi = {}
@@ -44,7 +47,7 @@ def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
                 #val = x[m][n_ue][t]*SNR[m][n_ue][t]
                 val = x[m,n_ue,t].getAttr('X')*SNR[m][n_ue][t]
                 linearSnr.append(val)
-                snr.append(10*np.log10(val))
+                snr.append(todb(val))
                 cap.append(BW[m]*np.log2(1+val))
 
             if y[m,n_ue,t].getAttr('X')==1:
@@ -64,7 +67,7 @@ def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
             if x[m,n,t].getAttr('X') == 1:
                 if (len(associated[0]) > 0 and associated[0][-1] != m) or len(associated[0])==0:
                     if len(associated[0]) > 1: 
-                        associated[2].append(10*np.log10(SNR[m][n_ue][t]) - 
+                        associated[2].append(todb(SNR[m][n_ue][t]) - 
                                 10*np.log10(SNR[associated[0][-1]][n_ue][t-args.ttt]))
                     else:
                         associated[2].append(0)
@@ -248,7 +251,7 @@ beta = []
 print('Generating Beta Array...')
 for n in range(n_ue):
     for p in range(m_bs):
-        print('Base Station %i'%(p))
+        #print('Base Station %i'%(p))
         beta.append([])
         handover_points = {}
         for q in range(m_bs):
@@ -258,20 +261,20 @@ for n in range(n_ue):
             if p != q:
                 beta[p][q].append([])
                 for t in range(scenario['simTime']):
-                    diff = 10*np.log10(SNR[q][n][t]) - (10*np.log10(SNR[p][n][t]) + 
+                    diff = todb(SNR[q][n][t]) - (todb(SNR[p][n][t]) + 
                              offset + 2*hysteresis)
                     beta[p][q][n].append(0)
 
                     if diff >= 0:
                         counter += 1
-                        snr_accumulator.append(10*np.log10(SNR[q][n][t]))
+                        snr_accumulator.append(todb(SNR[q][n][t]))
 
                     else:
                         counter = 0
                         snr_accumulator = []
 
                     if counter >= tau: # sum(temp[t-tau:t])>=tau:
-                        print(p, q, t)
+                       # print(p, q, t)
                         counter = 0
                         try:
                             handover_points[t].append([q, np.mean(snr_accumulator)])
@@ -287,14 +290,18 @@ for n in range(n_ue):
         for t in handover_points.keys():
             #print(handover_points[t])
             best_bs = max(handover_points[t], key=operator.itemgetter(1))
+            '''
             print(p, t, best_bs, 10*np.log10(SNR[p][n][t]), 
                     10*np.log10(SNR[best_bs[0]][n][t]))
+            '''
             beta[p][best_bs[0]][n][t] = 1
 
+'''
 print('3', LOS[3][0][1350:1356], SNR[3][0][1350:1356])
 for q in range(m_bs):
     if q != 3:
         print(q, beta[3][q][0][1350:1356], LOS[q][0][1350:1356], SNR[q][0][1350:1356]) 
+'''
 
 
 # Resource blocks attribution
@@ -437,7 +444,7 @@ if args.plot:
         time = []
         for t in range(scenario['simTime']):
             if x[m,0,t].getAttr('X') == 1:
-                plot[-1].append(10*np.log10(SNR[m][0][t]))
+                plot[-1].append(todb(SNR[m][0][t]))
                 time.append(t)
                 #print(t, SNR[m][0][t])
 
@@ -451,7 +458,7 @@ if args.plot:
         time = []
         for t in range(scenario['simTime']):
             if t%100 == 0:
-                plot[-1].append(10*np.log10(SNR[m][0][t]))
+                plot[-1].append(todb(SNR[m][0][t]))
                 time.append(t)
                 #print(t, SNR[m][0][t])
 
@@ -479,6 +486,13 @@ if args.plot:
     plt.savefig('snr.png')
     plt.show()
 
+filename = 'instances/opt/plot_points_'+args.outputFile
+with open(filename, "w") as output_plot:
+    for m in range(m_bs):
+        for n in range(n_ue):
+            for t in range(scenario['simTime']):
+                if x[m,n,t].x == 1:
+                    output_plot.write(str(t)+','+str(m)+','+str(todb(SNR[m][n][t]))+'\n')
 
 print('obj: %g'% model.objVal)
 print('X: %g'% x.sum('*','*','*').getValue())
