@@ -206,7 +206,7 @@ with open(args.inputFile) as json_file:
     for p in data['userEquipment']:
         nodes.append(p)
 
-scenario['simTime'] = min(5000, scenario['simTime'])
+scenario['simTime'] = min(50000, scenario['simTime'])
 
 for ue in nodes:
     ue['nPackets'] = int(scenario['simTime']/120 - 1)
@@ -296,12 +296,16 @@ for n in range(n_ue):
             '''
             beta[p][best_bs[0]][n][t] = 1
 
-'''
-print('3', LOS[3][0][1350:1356], SNR[3][0][1350:1356])
-for q in range(m_bs):
-    if q != 3:
-        print(q, beta[3][q][0][1350:1356], LOS[q][0][1350:1356], SNR[q][0][1350:1356]) 
-'''
+print('@@@')
+print('3-0', beta[3][0][0][29690:29710], beta[3][0][0][29750:29770])
+print(LOS[3][0][29690:29710], LOS[3][0][29750:29770])
+print('3-9', beta[3][9][0][29690:29710], beta[3][9][0][29750:29770])
+print('0-3', beta[0][3][0][29690:29710], beta[0][3][0][29750:29770])
+print(LOS[0][0][29690:29710], LOS[0][0][29750:29770])
+print('0-9', beta[0][9][0][29690:29710], beta[0][9][0][29750:29770])
+print('9-0', beta[9][0][0][29690:29710], beta[9][0][0][29750:29770])
+print(LOS[9][0][29690:29710], LOS[9][0][29750:29770])
+print('9-3', beta[9][3][0][29690:29710], beta[9][3][0][29750:29770])
 
 
 # Resource blocks attribution
@@ -312,6 +316,7 @@ for bs in network:
 
 end = time.time()
 print(end - start)
+
 ### ----------- End of preprocessing phase ---------------
 
 
