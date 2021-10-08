@@ -206,7 +206,7 @@ with open(args.inputFile) as json_file:
     for p in data['userEquipment']:
         nodes.append(p)
 
-scenario['simTime'] = min(50000, scenario['simTime'])
+scenario['simTime'] = min(5000, scenario['simTime'])
 
 for ue in nodes:
     ue['nPackets'] = int(scenario['simTime']/120 - 1)
@@ -245,6 +245,7 @@ for m, bs in enumerate(network):
 
 # Creating Beta array (handover flag)
 tau = args.ttt
+scenario['ttt'] = tau
 offset = 3 #dB 
 hysteresis = 0 #db
 beta = []
@@ -297,15 +298,15 @@ for n in range(n_ue):
             beta[p][best_bs[0]][n][t] = 1
 
 print('@@@')
-print('3-0', beta[3][0][0][29690:29710], beta[3][0][0][29750:29770])
-print(LOS[3][0][29690:29710], LOS[3][0][29750:29770])
-print('3-9', beta[3][9][0][29690:29710], beta[3][9][0][29750:29770])
-print('0-3', beta[0][3][0][29690:29710], beta[0][3][0][29750:29770])
-print(LOS[0][0][29690:29710], LOS[0][0][29750:29770])
-print('0-9', beta[0][9][0][29690:29710], beta[0][9][0][29750:29770])
-print('9-0', beta[9][0][0][29690:29710], beta[9][0][0][29750:29770])
-print(LOS[9][0][29690:29710], LOS[9][0][29750:29770])
-print('9-3', beta[9][3][0][29690:29710], beta[9][3][0][29750:29770])
+print('4-1', beta[4][1][0][4080:4100], beta[4][1][0][4470:4490])
+print(LOS[4][0][4080:4100], LOS[4][0][4470:4490])
+print('4-3', beta[4][3][0][4080:4100], beta[4][3][0][4470:4490])
+print('1-3', beta[1][3][0][4080:4100], beta[1][3][0][4470:4490])
+print(LOS[1][0][4080:4100], LOS[1][0][4470:4490])
+print('1-4', beta[1][4][0][4080:4100], beta[1][4][0][4470:4490])
+print('3-1', beta[3][1][0][4080:4100], beta[3][1][0][4470:4490])
+print(LOS[3][0][4080:4100], LOS[3][0][4470:4490])
+print('3-4', beta[3][4][0][4080:4100], beta[3][4][0][4470:4490])
 
 
 # Resource blocks attribution
