@@ -46,21 +46,21 @@ def gen_constraint_3(x, m_bs, nodes, SNR, simTime, gen_dict):
 
     gen_dict['constrs_3'] = generator
 
-def gen_auxiliar_4(b, beta, m_bs, n_ue, simTime, gen_dict):
+def gen_auxiliar_4(B, beta, m_bs, n_ue, simTime, gen_dict):
     bs_pairs = []
     for i in range(m_bs):
         for j in range(m_bs):
             if i != j:
                 bs_pairs.append([i,j])
 
-    generator = ( b[p,q,n,t] == beta[p][q][n][t]
+    generator = ( B[p,q,n,t] == beta[p][q][n][t]
                     for t in range(simTime)
                         for n in range(n_ue)
                             for p, q in bs_pairs)
 
     gen_dict['auxiliar_4'] = generator
 
-def gen_constraint_4(x, z, b, u, m_bs, n_ue, beta, simTime, gen_dict, interval=1):
+def gen_constraint_4(x, z, B, u, m_bs, n_ue, beta, simTime, gen_dict, interval=1):
     bs_pairs = []
     for i in range(m_bs):
         for j in range(m_bs):
@@ -68,7 +68,7 @@ def gen_constraint_4(x, z, b, u, m_bs, n_ue, beta, simTime, gen_dict, interval=1
                 bs_pairs.append([i,j])
 
     
-    generator = (z[p,q,n,t] == gb.and_(x[q,n,t],u[p,n,t-interval],b[p,q,n,t])
+    generator = (z[p,q,n,t] == gb.and_(x[q,n,t],u[p,n,t-interval],B[p,q,n,t])
                 for t in range(interval,simTime)
                     for n in range(n_ue)
                         for p, q in bs_pairs )
@@ -135,7 +135,7 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
     x = Vars[0]
     y = Vars[1]
     z = Vars[2]
-    b = Vars[3]
+    B = Vars[3]
     w = Vars[4]
     u = Vars[5]
     constrs_dict = {}
@@ -176,8 +176,8 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
 
 
     n_ue = len(nodes)
-    gen_auxiliar_4(b, beta, m_bs, n_ue, scenario['simTime'], constrs_dict)
-    gen_constraint_4(x, z, b, u, m_bs, n_ue, beta, scenario['simTime'], constrs_dict)
+    gen_auxiliar_4(B, beta, m_bs, n_ue, scenario['simTime'], constrs_dict)
+    gen_constraint_4(x, z, B, u, m_bs, n_ue, beta, scenario['simTime'], constrs_dict)
     
     try:
         model.addConstrs(constrs_dict['auxiliar_4'], name='handover_auxiliar')
