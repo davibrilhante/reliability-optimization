@@ -213,7 +213,7 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
     c = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='c')
     d = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='d')
 
-    generator = (c[p,n,t] == sum(z[q,p,n,t] for q in V - {p})
+    generator = (c[p,n,t] == sum(z[q,p,n,t+interval] for q in V - {p})
                     for t in range(scenario['simTime'] - interval)
                         for n in range(n_ue)
                             for p in V)
