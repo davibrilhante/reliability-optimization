@@ -206,7 +206,7 @@ with open(args.inputFile) as json_file:
     for p in data['userEquipment']:
         nodes.append(p)
 
-scenario['simTime'] = min(5000, scenario['simTime'])
+scenario['simTime'] = min(30000, scenario['simTime'])
 
 for ue in nodes:
     ue['nPackets'] = int(scenario['simTime']/120 - 1)
@@ -434,7 +434,7 @@ if args.plot:
     print('Ploting SNR')
     plot = []
     #colors = ['blue', 'orange', 'green', 'red']
-    '''
+    #'''
     oldv = ''
     for v in model.getVars():
         varname = v.varName.split('[')
@@ -443,7 +443,7 @@ if args.plot:
             oldv = varname[0]
         if v.x != 0:
             print('  %s %g' % (v.varName, v.x))
-    '''
+    #'''
 
     for m in range(m_bs):
         plot.append([])
