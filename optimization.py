@@ -206,13 +206,19 @@ with open(args.inputFile) as json_file:
     for p in data['userEquipment']:
         nodes.append(p)
 
-scenario['simTime'] = min(30000, scenario['simTime'])
+beginning = 24300
+scenario['simTime'] = min(5000, scenario['simTime'])
 
 for ue in nodes:
     ue['nPackets'] = int(scenario['simTime']/120 - 1)
     ue['packets'] = ue['packets'][:ue['nPackets']]
     ue['capacity'] = 750e6 #Bits per second
     ue['threshold'] = 10**(ue['threshold']/10)
+
+    ue['position']['x'] += (ue['speed']['x']/3.6)*(beginning*1e-3)
+    ue['position']['y'] += (ue['speed']['y']/3.6)*(beginning*1e-3)
+
+print(nodes[0]['position'])
 
 n_ue = len(nodes)
 m_bs = len(network)
@@ -235,7 +241,7 @@ for m, bs in enumerate(network):
         SNR[m].append([])
         #Adding the time dependency
         for t in range(scenario['simTime']):
-            if LOS[m][n][t] == 1:
+            if LOS[m][n][beginning+t] == 1:
                 los = True
             else:
                 los = False
@@ -262,6 +268,13 @@ for n in range(n_ue):
             if p != q:
                 beta[p][q].append([])
                 for t in range(scenario['simTime']):
+                    if counter >= tau: # sum(temp[t-tau:t])>=tau:
+                        counter = 0
+                        try:
+                            handover_points[t].append([q, np.mean(snr_accumulator)])
+                        except KeyError:
+                            handover_points[t] = [[q, np.mean(snr_accumulator)]]
+
                     diff = todb(SNR[q][n][t]) - (todb(SNR[p][n][t]) + 
                              offset + 2*hysteresis)
                     beta[p][q][n].append(0)
@@ -273,14 +286,6 @@ for n in range(n_ue):
                     else:
                         counter = 0
                         snr_accumulator = []
-
-                    if counter >= tau: # sum(temp[t-tau:t])>=tau:
-                       # print(p, q, t)
-                        counter = 0
-                        try:
-                            handover_points[t].append([q, np.mean(snr_accumulator)])
-                        except KeyError:
-                            handover_points[t] = [[q, np.mean(snr_accumulator)]]
                     '''
                     else:
                         beta[p][q][n].append(0)
@@ -291,23 +296,11 @@ for n in range(n_ue):
         for t in handover_points.keys():
             #print(handover_points[t])
             best_bs = max(handover_points[t], key=operator.itemgetter(1))
-            '''
+            #'''
             print(p, t, best_bs, 10*np.log10(SNR[p][n][t]), 
                     10*np.log10(SNR[best_bs[0]][n][t]))
-            '''
+            #'''
             beta[p][best_bs[0]][n][t] = 1
-
-print('@@@')
-print('4-1', beta[4][1][0][4080:4100], beta[4][1][0][4470:4490])
-print(LOS[4][0][4080:4100], LOS[4][0][4470:4490])
-print('4-3', beta[4][3][0][4080:4100], beta[4][3][0][4470:4490])
-print('1-3', beta[1][3][0][4080:4100], beta[1][3][0][4470:4490])
-print(LOS[1][0][4080:4100], LOS[1][0][4470:4490])
-print('1-4', beta[1][4][0][4080:4100], beta[1][4][0][4470:4490])
-print('3-1', beta[3][1][0][4080:4100], beta[3][1][0][4470:4490])
-print(LOS[3][0][4080:4100], LOS[3][0][4470:4490])
-print('3-4', beta[3][4][0][4080:4100], beta[3][4][0][4470:4490])
-
 
 # Resource blocks attribution
 R = []
@@ -340,7 +333,7 @@ x = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='x')
 y = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='y')
 u = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='u')
 z = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='z')
-b = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='b')
+B = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='B')
 
 vars = x
 end = time.time()
@@ -350,7 +343,7 @@ start = time.time()
 print('Adding model Constraints...')
 start = time.time()
 
-Vars = [x, y, z, b, w, u]
+Vars = [x, y, z, B, w, u]
 add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario)
 
 end = time.time()
@@ -410,14 +403,6 @@ except gb.GurobiError as error:
 
 
 ##################### Collecting network results ##############################
-print('Generating results...')
-print(beta[4][3][0][2210:2216])
-print(beta[3][4][0][2210:2216])
-print('x', x[3,0,1350].x, x[3,0,1351].x, x[3,0,1352].x)
-print('u', u[3,0,1350].x, u[3,0,1351].x, u[3,0,1352].x)
-print('b', b[3,4,0,1350].x, b[3,4,0,1351].x, b[3,4,0,1352].x)
-print('z', z[3,4,0,1350].x, z[3,4,0,1351].x, z[3,4,0,1352].x)
-
 kpi = getKpi(x, y, m_bs, 0, scenario['simTime'], SNR, R, nodes[0]['nPackets'])
 
 if args.save:
@@ -463,7 +448,7 @@ if args.plot:
         plot.append([])
         time = []
         for t in range(scenario['simTime']):
-            if t%100 == 0:
+            if t%50 == 0:
                 plot[-1].append(todb(SNR[m][0][t]))
                 time.append(t)
                 #print(t, SNR[m][0][t])

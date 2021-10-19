@@ -53,7 +53,7 @@ def gen_auxiliar_4(B, beta, m_bs, n_ue, simTime, gen_dict):
             if i != j:
                 bs_pairs.append([i,j])
 
-    generator = ( B[p,q,n,t] == beta[p][q][n][t]
+    generator = (B[p,q,n,t] == beta[p][q][n][t]
                     for t in range(simTime)
                         for n in range(n_ue)
                             for p, q in bs_pairs)
@@ -68,7 +68,8 @@ def gen_constraint_4(x, z, B, u, m_bs, n_ue, beta, simTime, gen_dict, interval=1
                 bs_pairs.append([i,j])
 
     
-    generator = (z[p,q,n,t] == gb.and_(x[q,n,t],u[p,n,t-interval],B[p,q,n,t])
+    generator = (z[p,q,n,t] == gb.and_(x[q,n,t],u[p,n,t],B[p,q,n,t])
+    #generator = (z[p,q,n,t] == gb.and_(u[p,n,t],B[p,q,n,t])
                 for t in range(interval,simTime)
                     for n in range(n_ue)
                         for p, q in bs_pairs )
