@@ -68,8 +68,8 @@ def gen_constraint_4(x, z, B, u, m_bs, n_ue, beta, simTime, gen_dict, interval=1
                 bs_pairs.append([i,j])
 
     
-    generator = (z[p,q,n,t] == gb.and_(x[q,n,t],u[p,n,t],B[p,q,n,t])
     #generator = (z[p,q,n,t] == gb.and_(u[p,n,t],B[p,q,n,t])
+    generator = (z[p,q,n,t] == gb.and_(x[q,n,t],u[p,n,t],B[p,q,n,t])
                 for t in range(interval,simTime)
                     for n in range(n_ue)
                         for p, q in bs_pairs )
@@ -213,13 +213,24 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
     b = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='b')
     c = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='c')
     d = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='d')
+    e = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='e')
 
-    generator = (c[p,n,t] == sum(z[q,p,n,t+interval] for q in V - {p})
+    #generator = (c[p,n,t] == sum(z[q,p,n,t+interval] for q in V - {p})
+
+    generator = (e[q, p,n,t] == gb.and_(u[q,n,t+interval],B[q,p,n,t+interval])
+                    for t in range(scenario['simTime'] - interval)
+                        for n in range(n_ue)
+                            for p in V
+                                for q in V - {p})
+
+    model.addConstrs(generator, name='yet_another_auxiliar')
+
+
+    generator = (c[p,n,t] == gb.quicksum(e[q,p,n,t] for q in V - {p})
                     for t in range(scenario['simTime'] - interval)
                         for n in range(n_ue)
                             for p in V)
 
-    model.addConstrs(generator, name='yet_another_auxiliar')
 
 
     generator = (a[p,n,t] == gb.and_(x[p,n,t],w[p,n,t])
