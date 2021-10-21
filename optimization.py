@@ -12,6 +12,7 @@ from matplotlib import pyplot as plt
 import time
 import operator
 from multiprocessing import Process, Manager, Queue, Pool
+from guppy import hpy
 
 
 from add_constraints import add_all_constraints
@@ -27,6 +28,11 @@ parser.add_argument('--ttt', type=int, default=640)
 
 
 args = parser.parse_args()
+
+heap = hpy()
+heap_status_0 = heap.heap()
+
+heap.setref()
 
 def todb(x : float) -> float:
     return 10*np.log10(x)
@@ -178,8 +184,42 @@ def handover_detection(_vars):
 
     return handovers
 
+'''
+# Decorator to measure performance of functions
+def measure_performance(func):
+    # Profile function
+    def profile(*args, **kwargs):
+        # Profile the memory use
+        h = hpy()
+        h.setrelheap()
+
+        # Profile the time duration
+        start_time = timer()
+        path = func(*args, **kwargs)
+        end_time = timer()
+
+        # Save duration in megabytes
+        memory = h.heap().size / (1024*1024)
+        # Save duration in milliseconds
+        duration = (end_time - start_time)*1000
+
+        return path, memory, duration
+
+    return profile
+'''
 
 
+comp_resources = {
+    'loading': [0, 0],
+    'snrprocess': [0,0],
+    'betaprocess': [0,0],
+    'addvars': [0,0],
+    'addconsts': [0,0],
+    'addobj': [0,0],
+    'optmize': [0,0],
+    'log': [0,0],
+    'plot': [0,0]
+    }
 
 
 network = []
@@ -218,13 +258,15 @@ for ue in nodes:
     ue['position']['x'] += (ue['speed']['x']/3.6)*(beginning*1e-3)
     ue['position']['y'] += (ue['speed']['y']/3.6)*(beginning*1e-3)
 
-print(nodes[0]['position'])
 
 n_ue = len(nodes)
 m_bs = len(network)
 
-end = time.time()
-print(end - start)
+comp_resources['loading'][0] = time.time() - start
+heap_stat = heap.heap()
+comp_resources['loading'][1] = heap_stat.size/(1024*1024)
+
+print(comp_resources['loading'])
 
 SNR = []
 
@@ -249,7 +291,15 @@ for m, bs in enumerate(network):
             #if gamma[m][n][t] == float('inf') or gamma[m][n][t] == float('nan'):
             #    gamma[m][n][t] = 1.0
 
+comp_resources['snrprocess'][0] = time.time() - start
+heap_stat = heap.heap()
+comp_resources['snrprocess'][1] = heap_stat.size/(1024*1024)
+
+print(comp_resources['snrprocess'])
+
 # Creating Beta array (handover flag)
+start = time.time()
+
 tau = args.ttt
 scenario['ttt'] = tau
 offset = 3 #dB 
@@ -296,11 +346,17 @@ for n in range(n_ue):
         for t in handover_points.keys():
             #print(handover_points[t])
             best_bs = max(handover_points[t], key=operator.itemgetter(1))
-            #'''
+            '''
             print(p, t, best_bs, 10*np.log10(SNR[p][n][t]), 
                     10*np.log10(SNR[best_bs[0]][n][t]))
             #'''
             beta[p][best_bs[0]][n][t] = 1
+
+comp_resources['betaprocess'][0] = time.time() - start
+heap_stat = heap.heap()
+comp_resources['betaprocess'][1] = heap_stat.size/(1024*1024)
+
+print(comp_resources['betaprocess'])
 
 # Resource blocks attribution
 R = []
@@ -308,8 +364,6 @@ for bs in network:
     bw_per_rb = 12*bs['subcarrierSpacing'] #12 subcarriers per resouce block times 120kHz subcarrier spacing
     R.append(bw_per_rb*bs['resourceBlocks'])
 
-end = time.time()
-print(end - start)
 
 ### ----------- End of preprocessing phase ---------------
 
@@ -336,18 +390,22 @@ z = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name=
 B = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='B')
 
 vars = x
-end = time.time()
-print(end - start)
 
-start = time.time()
+comp_resources['addvars'][0] = time.time() - start
+heap_stat = heap.heap()
+comp_resources['addvars'][1] = heap_stat.size/(1024*1024)
+
+
 print('Adding model Constraints...')
 start = time.time()
 
 Vars = [x, y, z, B, w, u]
 add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario)
 
-end = time.time()
-print(end - start)
+comp_resources['addconsts'][0] = time.time() - start
+heap_stat = heap.heap()
+comp_resources['addconsts'][1] = heap_stat.size/(1024*1024)
+
 '''
 # 9 - Delay and Capacity requirements coupling
 for m in range(m_bs):
@@ -382,8 +440,9 @@ model._beta = gb.tuplelist(beta)
 
 model.write('myModel.lp')
 
-end = time.time()
-print(end - start)
+comp_resources['addobj'][0] = time.time() - start
+heap_stat = heap.heap()
+comp_resources['addobj'][1] = heap_stat.size/(1024*1024)
 
 ### Compute optimal Solution
 start = time.time()
@@ -393,6 +452,18 @@ try:
     end = time.time()
     print(end - start)
 
+    global mvars
+    mvars.update({
+        'nvars': model.getAttr('numVars'),
+        'nconst': model.getAttr('numConstrs'),
+        'nqconst': model.getAttr('numQConstrs'),
+        'ngconst': model.getAttr('numGenConstrs'),
+        'status': model.Status == GRB.OPTIMAL,
+        'runtime': model.getAttr('Runtime'),
+        'node': model.getAttr('nodecount')
+    })
+
+
 except gb.GurobiError as error:
     print('Optimize  failed\n\n')
     print(error)
@@ -400,9 +471,13 @@ except gb.GurobiError as error:
     print(end - start)
     sys.exit()
 
+comp_resources['optimize'][0] = time.time() - start
+heap_stat = heap.heap()
+comp_resources['optimize'][1] = heap_stat.size/(1024*1024)
 
 
 ##################### Collecting network results ##############################
+start = time.time()
 kpi = getKpi(x, y, m_bs, 0, scenario['simTime'], SNR, R, nodes[0]['nPackets'])
 
 if args.save:
@@ -411,11 +486,16 @@ if args.save:
         json.dump(kpi, jsonfile, indent=4)
 
 results = json.dumps(kpi, indent=4)
+
+comp_resources['log'][0] = time.time() - start
+heap_stat = heap.heap()
+comp_resources['log'][1] = heap_stat.size/(1024*1024)
 #print(results)
 #print(beta)
 
 ############################## PLOT SECTION ###################################
 if args.plot:
+    start = time.time()
     print('Ploting SNR')
     plot = []
     #colors = ['blue', 'orange', 'green', 'red']
@@ -477,6 +557,10 @@ if args.plot:
     plt.savefig('snr.png')
     plt.show()
 
+    comp_resources['log'][0] = time.time() - start
+    heap_stat = heap.heap()
+    comp_resources['log'][1] = heap_stat.size/(1024*1024)
+
 filename = 'instances/opt/plot_points_'+args.outputFile
 with open(filename, "w") as output_plot:
     for m in range(m_bs):
@@ -488,6 +572,8 @@ with open(filename, "w") as output_plot:
 print('obj: %g'% model.objVal)
 print('X: %g'% x.sum('*','*','*').getValue())
 print('Y: %g'% y.sum('*','*','*').getValue())
+print(mvars)
+print(comp_resources)
 
 '''
 if __name__ == '__main__':
