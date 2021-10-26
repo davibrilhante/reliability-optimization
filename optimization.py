@@ -34,6 +34,9 @@ heap_status_0 = heap.heap()
 
 heap.setref()
 
+global mvars
+mvars = {}
+
 def todb(x : float) -> float:
     return 10*np.log10(x)
 
@@ -216,7 +219,7 @@ comp_resources = {
     'addvars': [0,0],
     'addconsts': [0,0],
     'addobj': [0,0],
-    'optmize': [0,0],
+    'optimize': [0,0],
     'log': [0,0],
     'plot': [0,0]
     }
@@ -247,7 +250,7 @@ with open(args.inputFile) as json_file:
         nodes.append(p)
 
 beginning = 24300
-scenario['simTime'] = min(5000, scenario['simTime'])
+scenario['simTime'] = min(20000, scenario['simTime'])
 
 for ue in nodes:
     ue['nPackets'] = int(scenario['simTime']/120 - 1)
@@ -452,7 +455,6 @@ try:
     end = time.time()
     print(end - start)
 
-    global mvars
     mvars.update({
         'nvars': model.getAttr('numVars'),
         'nconst': model.getAttr('numConstrs'),
