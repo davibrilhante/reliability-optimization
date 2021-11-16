@@ -187,30 +187,6 @@ def handover_detection(_vars):
 
     return handovers
 
-'''
-# Decorator to measure performance of functions
-def measure_performance(func):
-    # Profile function
-    def profile(*args, **kwargs):
-        # Profile the memory use
-        h = hpy()
-        h.setrelheap()
-
-        # Profile the time duration
-        start_time = timer()
-        path = func(*args, **kwargs)
-        end_time = timer()
-
-        # Save duration in megabytes
-        memory = h.heap().size / (1024*1024)
-        # Save duration in milliseconds
-        duration = (end_time - start_time)*1000
-
-        return path, memory, duration
-
-    return profile
-'''
-
 
 comp_resources = {
     'loading': [0, 0],
@@ -249,8 +225,8 @@ with open(args.inputFile) as json_file:
     for p in data['userEquipment']:
         nodes.append(p)
 
-beginning = 24300
-scenario['simTime'] = min(20000, scenario['simTime'])
+beginning = 26000
+scenario['simTime'] = min(5000, scenario['simTime'])
 
 for ue in nodes:
     ue['nPackets'] = int(scenario['simTime']/120 - 1)
@@ -321,16 +297,21 @@ for n in range(n_ue):
             if p != q:
                 beta[p][q].append([])
                 for t in range(scenario['simTime']):
+                    diff = todb(SNR[q][n][t]) - (todb(SNR[p][n][t]) + 
+                             offset + 2*hysteresis)
+
+                    beta[p][q][n].append(0)
+
                     if counter >= tau: # sum(temp[t-tau:t])>=tau:
                         counter = 0
+                        #counter -= 1
                         try:
                             handover_points[t].append([q, np.mean(snr_accumulator)])
                         except KeyError:
                             handover_points[t] = [[q, np.mean(snr_accumulator)]]
 
-                    diff = todb(SNR[q][n][t]) - (todb(SNR[p][n][t]) + 
-                             offset + 2*hysteresis)
-                    beta[p][q][n].append(0)
+                        beta[p][q][n][t] = 1
+
 
                     if diff >= 0:
                         counter += 1
@@ -346,12 +327,13 @@ for n in range(n_ue):
                     if sum(temp[t-tau:t])>=tau:
                         print('Is possible to handover from %i to %i at %i'%(p,q,t))
                     '''
+        
+        print('@@@')
         for t in handover_points.keys():
             #print(handover_points[t])
             best_bs = max(handover_points[t], key=operator.itemgetter(1))
-            '''
-            print(p, t, best_bs, 10*np.log10(SNR[p][n][t]), 
-                    10*np.log10(SNR[best_bs[0]][n][t]))
+            #'''
+            print(p, t, best_bs)
             #'''
             beta[p][best_bs[0]][n][t] = 1
 
@@ -385,12 +367,11 @@ model.setParam(GRB.Param.Threads, args.threads)
 ### Add variables to the model
 start = time.time()
 print('Adding model variables...')
-w = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='w')
+
 x = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='x')
 y = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='y')
 u = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='u')
-z = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='z')
-B = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='B')
+#sumbeta = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='sumbeta')
 
 vars = x
 
@@ -402,20 +383,13 @@ comp_resources['addvars'][1] = heap_stat.size/(1024*1024)
 print('Adding model Constraints...')
 start = time.time()
 
-Vars = [x, y, z, B, w, u]
+Vars = [x, y, u]
 add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario)
 
 comp_resources['addconsts'][0] = time.time() - start
 heap_stat = heap.heap()
 comp_resources['addconsts'][1] = heap_stat.size/(1024*1024)
 
-'''
-# 9 - Delay and Capacity requirements coupling
-for m in range(m_bs):
-    for n in range(n_ue):
-        for t in range(scenario['simTime']):
-            model.addConstr(2*w[m][n][t] == x[m][n][t]+y[m][n][t])
-#'''
 
 ### Set objective function
 #
@@ -480,7 +454,11 @@ comp_resources['optimize'][1] = heap_stat.size/(1024*1024)
 
 ##################### Collecting network results ##############################
 start = time.time()
-kpi = getKpi(x, y, m_bs, 0, scenario['simTime'], SNR, R, nodes[0]['nPackets'])
+kpi = {}
+try:
+    kpi = getKpi(x, y, m_bs, 0, scenario['simTime'], SNR, R, nodes[0]['nPackets'])
+except Exception as error:
+    print(error)
 
 if args.save:
     filename = 'instances/opt/'+args.outputFile
@@ -514,44 +492,44 @@ if args.plot:
 
     for m in range(m_bs):
         plot.append([])
-        time = []
+        timeslots = []
         for t in range(scenario['simTime']):
             if x[m,0,t].getAttr('X') == 1:
                 plot[-1].append(todb(SNR[m][0][t]))
-                time.append(t)
+                timeslots.append(t)
                 #print(t, SNR[m][0][t])
 
         #plt.plot(plot)
         if plot[-1]:
-            plt.scatter(time,plot[-1], label=m)#, color=colors[m])
+            plt.scatter(timeslots,plot[-1], label=m)#, color=colors[m])
 
     plot = []
     for m in range(5):
         plot.append([])
-        time = []
+        timeslots = []
         for t in range(scenario['simTime']):
             if t%50 == 0:
                 plot[-1].append(todb(SNR[m][0][t]))
-                time.append(t)
+                timeslots.append(t)
                 #print(t, SNR[m][0][t])
 
         #plt.plot(plot)
-        plt.scatter(time,plot[-1], marker = '+', label=m)#, color = colors[m])
+        plt.scatter(timeslots,plot[-1], marker = '+', label=m)#, color = colors[m])
 
 
     plot = []
     for m in range(m_bs):
         plot.append([])
-        time = []
+        timeslots = []
         for t in range(scenario['simTime']):
             if y[m,0,t].getAttr('X') == 1:
                 plot[-1].append(0)
-                time.append(t)
+                timeslots.append(t)
                 #print(t, SNR[m][0][t])
 
         #plt.plot(plot)
         if plot[-1]:
-            plt.scatter(time,plot[-1],marker='s')#, color=colors[m])
+            plt.scatter(timeslots,plot[-1],marker='s')#, color=colors[m])
 
     plt.ylabel('SNR')
     plt.xlabel('Time (mS)')
@@ -559,9 +537,9 @@ if args.plot:
     plt.savefig('snr.png')
     plt.show()
 
-    comp_resources['log'][0] = time.time() - start
+    comp_resources['plot'][0] = time.time() - start
     heap_stat = heap.heap()
-    comp_resources['log'][1] = heap_stat.size/(1024*1024)
+    comp_resources['plot'][1] = heap_stat.size/(1024*1024)
 
 filename = 'instances/opt/plot_points_'+args.outputFile
 with open(filename, "w") as output_plot:

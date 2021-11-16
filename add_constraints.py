@@ -40,39 +40,48 @@ def gen_constraint_2(x, y, m_bs, nodes, simTime, gen_dict):
 def gen_constraint_3(x, m_bs, nodes, SNR, simTime, gen_dict):
     n_ue = len(nodes)
 
-    generator = (sum((SNR[m][n][t] - nodes[n]['threshold'])*x[m,n,t] for m in range(m_bs))>=0
+    generator = (gb.quicksum((SNR[m][n][t] - nodes[n]['threshold'])*x[m,n,t] for m in range(m_bs))>=0
                 for t in range(simTime)
                     for n in range(n_ue))
 
     gen_dict['constrs_3'] = generator
 
-def gen_auxiliar_4(B, beta, m_bs, n_ue, simTime, gen_dict):
-    bs_pairs = []
-    for i in range(m_bs):
-        for j in range(m_bs):
-            if i != j:
-                bs_pairs.append([i,j])
+def gen_auxiliar_4(sumbeta, beta, m_bs, n_ue, simTime, gen_dict):
+    M =  {i for i in range(m_bs)}
 
-    generator = (B[p,q,n,t] == beta[p][q][n][t]
+    generator = (sumbeta[p,n,t] == gb.quicksum(beta[p][q][n][t] for q in M - {p})
                     for t in range(simTime)
                         for n in range(n_ue)
-                            for p, q in bs_pairs)
+                            for p in M)
 
     gen_dict['auxiliar_4'] = generator
 
-def gen_constraint_4(x, z, B, u, m_bs, n_ue, beta, simTime, gen_dict, interval=1):
-    bs_pairs = []
-    for i in range(m_bs):
-        for j in range(m_bs):
-            if i != j:
-                bs_pairs.append([i,j])
+def gen_constraint_4(x, beta, m_bs, n_ue, simTime, gen_dict, interval=1):
+    M =  {i for i in range(m_bs)}
 
-    
-    #generator = (z[p,q,n,t] == gb.and_(u[p,n,t],B[p,q,n,t])
-    generator = (z[p,q,n,t] == gb.and_(x[q,n,t],u[p,n,t],B[p,q,n,t])
-                for t in range(interval,simTime)
+    betap = {}
+    betaq = {}
+    for p in M:
+        betap[p] = {}
+        betaq[p] = {}
+        for n in range(n_ue):
+            betap[p][n] = {}
+            betaq[p][n] = {}
+            for t in range(simTime):
+                betap[p][n][t] = 1
+                betaq[p][n][t] = 0
+                for q in M - {p}:
+                    if beta[p][q][n][t] == 1:
+                        betap[p][n][t] = 0
+
+                    if beta[q][p][n][t] == 1:
+                        betaq[p][n][t] = 1
+
+
+    generator = (x[p,n,t] >= x[p,n,t-1]*betap[p][n][t] #(1 - gb.quicksum(beta[p][q][n][t] for q in M - {p}))
+                for t in range(1, simTime)
                     for n in range(n_ue)
-                        for p, q in bs_pairs )
+                        for p in M)
 
     gen_dict['constrs_4'] = generator
 
@@ -133,13 +142,14 @@ def gen_constraint_10(Var, m_bs, n_ue, simTime, gen_dict, Key='constrs_10'):
 
 def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, interval=1):
     m_bs = len(network) 
+    n_ue = len(nodes)
+    M = {i for i in range(m_bs)}
+
     x = Vars[0]
     y = Vars[1]
-    z = Vars[2]
-    B = Vars[3]
-    w = Vars[4]
-    u = Vars[5]
+    u = Vars[2]
     constrs_dict = {}
+
 
     gen_constraint_1(x, m_bs, nodes, R, SNR, scenario['simTime'], constrs_dict)
 
@@ -152,6 +162,7 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
         print(error)
         exit()
 
+
     gen_constraint_2(x, y, m_bs, nodes, scenario['simTime'], constrs_dict)
 
     try:
@@ -162,6 +173,7 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
         print('Error adding constraints #2')
         print(error)
         exit()
+
 
     gen_constraint_3(x, m_bs, nodes, SNR, scenario['simTime'], constrs_dict)
 
@@ -175,95 +187,141 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
         exit()
 
 
-
-    n_ue = len(nodes)
-    gen_auxiliar_4(B, beta, m_bs, n_ue, scenario['simTime'], constrs_dict)
-    gen_constraint_4(x, z, B, u, m_bs, n_ue, beta, scenario['simTime'], constrs_dict)
-    
     try:
-        model.addConstrs(constrs_dict['auxiliar_4'], name='handover_auxiliar')
-        model.addConstrs(constrs_dict['constrs_4'], name='handover_constr')
-        print('Constraints #4 added...')
+        aux = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.INTEGER, ub=scenario['ttt'], name ='aux')
+        generator = (aux[p,n,t] == scenario['ttt'] - gb.quicksum(x[p,n,k] for k in range(t - scenario['ttt'], t))
+                        for t in range(scenario['ttt'], scenario['simTime'])
+                            for n in range(n_ue)
+                                for p in M)
+        model.addConstrs(generator, name='aux_const')
+
+
+        generator = (u[p,n,t] == gb.min_(1, aux[p,n,t])
+                        for t in range(scenario['ttt'], scenario['simTime'])
+                            for n in range(n_ue)
+                                for p in M)
+
+
+        model.addConstrs(generator, name='u_const')
+
+        print('u_const added')
+
+    except Exception as error:
+        print('u_const not added to model')
+        print(error)
+        exit()
+
+
+
+    sumu = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='sum_u')
+    sumx = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='sum_x')
+
+    #generator = (sumu[q,n,t] == gb.quicksum((1 - u[p,n,t])*beta[p][q][n][t]  for p in M - {q})
+    generator = (sumu[p, q,n,t] == (1 - u[p,n,t])*beta[p][q][n][t]  
+                    #for t in range(scenario['ttt'], scenario['simTime'])
+                    for t in range(scenario['simTime'])
+                        for n in range(n_ue)
+                            for q in M
+                                for p in M - {q})
+
+    model.addConstrs(generator, name='sum_u_const')
+
+    
+    betap = {}
+    betaq = {}
+    for p in M:
+        betap[p] = {}
+        betaq[p] = {}
+        for n in range(n_ue):
+            betap[p][n] = {}
+            betaq[p][n] = {}
+            for t in range(scenario['simTime']):
+                betap[p][n][t] = 1
+                betaq[p][n][t] = 0
+                for q in M - {p}:
+                    if beta[p][q][n][t] == 1:
+                        betap[p][n][t] = 0
+                        print('betap[',p,',',t,'] = 0')
+                        break
+                for q in M - {p}:
+                    if beta[q][p][n][t] == 1:
+                        print('betaq[',p,',',t,'] = 1')
+                        betaq[p][n][t] = 1
+
+    model.addConstr(x[0,0,0] == 1, 'initial_constr')
+
+    for p in M:
+        for n in range(n_ue):
+            for t in range(1,scenario['simTime']):
+                if betap[p][n][t] == 1:
+                    if betaq[p][n][t] == 0:
+                        model.addConstr(x[p,n,t] - x[p,n,t-1] == 0, 'stay_constr')
+                    else:
+                        model.addConstr(x[p,n,t] - x[p,n,t-1] >= 0, 'stay_constr')
+                        #model.addGenConstrIndicator(x[p,n,t-1], True, x[p,n,t] - x[p,n,t-1], GRB.EQUAL, 0, 'move_constr')
+                else:
+                    candidates = []
+                    for q in M - {p}:
+                        if beta[p][q][n][t] == 1:
+                            print(p, q, t, 'handover_constr')
+                            candidates.append(q)
+                    try:
+                        #model.addConstr((sumu[p,q,n,t] == 1) >> (x[q,n,t] == 1), 'move_constr')
+                        model.addGenConstrIndicator(u[p,n,t], False, gb.quicksum(x[q,n,t] for q in candidates), GRB.EQUAL, 1, 'handover_constr')
+                        #model.addGenConstrIndicator(u[p,n,t], True, gb.quicksum(x[q,n,t] for q in candidates), GRB.EQUAL, 0, 'handover_constr')
+                        model.addGenConstrIndicator(u[p,n,t], True, x[p,n,t] - x[p,n,t-1], GRB.EQUAL, 0, 'handover_constr')
+                    except Exception as error:
+                        print(error)
+        
+
+    '''
+
+    parc1 = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='parc1')
+    generator = (parc1[p,n,t] == x[p,n,t-1]*betap[p][n][t] 
+                for t in range(1,scenario['simTime'])
+                    for n in range(n_ue)
+                        for p in M)
+
+    model.addConstrs(generator, name='parc1_const')
+
+    #generator = (x[q,n,t] == gb.or_(parc1[q,n,t],sumu[q,n,t])
+    #generator = ((sumu[p,q,n,t] == 1) >> (x[q,n,t] == 1)
+    generator = (x[q,n,t] >= parc1[q,n,t] + sumu[p,q,n,t]
+                    for t in range(1,scenario['simTime'])
+                        for n in range(n_ue)
+                            for q in M
+                                for p in M - {q})
+
+    model.addConstrs(generator, name='test_constr')
+
+    generator = (sumx[p,q,n,t] == gb.and_(x[p,n,t-1], x[q,n,t])
+                    #for t in range(scenario['ttt'], scenario['simTime'])
+                    for t in range(scenario['ttt'],scenario['simTime'])
+                        for n in range(n_ue)
+                            for q in M
+                                for p in M - {q})
+
+    model.addConstrs(generator, name='sumx_constr')
+
+    generator = ((sumx[p,q,n,t] == 1) >> (sumu[p,q,n,t] == 1)
+                    #for t in range(scenario['ttt'], scenario['simTime'])
+                    for t in range(scenario['ttt'],scenario['simTime'])
+                        for n in range(n_ue)
+                            for q in M
+                                for p in M - {q})
+
+    model.addConstrs(generator, name='handover_constr')
+    '''
+    #gen_constraint_4(x, beta, m_bs, n_ue, scenario['simTime'], constrs_dict)
+
+    try:
+        #model.addConstrs(constrs_dict['constrs_4'], name='handover_constr')
+        print('Constraints #4 added...')  
 
     except Exception as error:
         print('Error adding constraints #4')
         print(error)
         exit()
-
-    
-    V = {i for i in range(m_bs)}
-
-    generator = (w[p,n,t] == 1 - sum(beta[p][q][n][t+interval] for q in V - {p})
-                    for t in range(scenario['simTime'] - interval)
-                        for n in range(n_ue)
-                            for p in V)
-
-    model.addConstrs(generator, name='another_auxiliar')
-
-
-    generator = (u[p,n,t] == gb.and_(x[p,n,k] for k in range(t - scenario['ttt'], t))
-                    for t in range(scenario['ttt'], scenario['simTime'])
-                        for n in range(n_ue)
-                            for p in V)
-
-    model.addConstrs(generator, name='yet_another_auxiliar')
-
-
-    a = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='a')
-    b = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='b')
-    c = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='c')
-    d = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='d')
-    e = model.addVars(m_bs, m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='e')
-
-    #generator = (c[p,n,t] == sum(z[q,p,n,t+interval] for q in V - {p})
-
-    generator = (e[q, p,n,t] == gb.and_(u[q,n,t+interval],B[q,p,n,t+interval])
-                    for t in range(scenario['simTime'] - interval)
-                        for n in range(n_ue)
-                            for p in V
-                                for q in V - {p})
-
-    model.addConstrs(generator, name='yet_another_auxiliar')
-
-
-    generator = (c[p,n,t] == gb.quicksum(e[q,p,n,t] for q in V - {p})
-                    for t in range(scenario['simTime'] - interval)
-                        for n in range(n_ue)
-                            for p in V)
-
-
-
-    generator = (a[p,n,t] == gb.and_(x[p,n,t],w[p,n,t])
-                for t in range(scenario['simTime'] - interval)
-                    for n in range(n_ue)
-                        for p in V)
-
-    model.addConstrs(generator, name='yet_another_auxiliar')
-    
-
-    generator = (d[p,n,t] == 1 - x[p,n,t]
-                    for t in range(scenario['simTime'])
-                        for n in range(n_ue)
-                            for p in V)
-
-    model.addConstrs(generator, name='negation_constraint')
-
-
-    generator = (b[p,n,t] == gb.and_(d[p,n,t],c[p,n,t])
-                for t in range(scenario['simTime'] - interval)
-                    for n in range(n_ue)
-                        for p in V
-                            for q in V - {p})
-
-    model.addConstrs(generator, name='yet_another_auxiliar')
-
-
-    generator = (x[p,n,t+interval] == gb.or_(a[p,n,t],b[p,n,t])
-                for t in range(scenario['simTime'] - interval)
-                    for n in range(n_ue)
-                        for p in V)
-
-    model.addConstrs(generator, name='yet_another_auxiliar_again')
 
 
     gen_constraint_5(y, m_bs, nodes, scenario['simTime'], constrs_dict)
@@ -343,6 +401,3 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
         print('Error adding constraints #11')
         print(error)
         exit()
-
-
-
