@@ -13,8 +13,8 @@ import time
 import operator
 from multiprocessing import Process, Manager, Queue, Pool
 import subprocess
-import os
 from guppy import hpy
+import logging
 
 
 from add_constraints import add_all_constraints
@@ -25,6 +25,7 @@ parser.add_argument('-i','--inputFile', help='Instance json input file')
 parser.add_argument('-o','--outputFile', default='results', help='outputs json result file')
 parser.add_argument('-r','--report', default='rel', help='cpu and memory resources profiling report file')
 parser.add_argument('-p','--plot', action='store_true', help='Enables plot')
+parser.add_argument('-P','--Print', action='store_true', help='Enables printing variables')
 parser.add_argument('-s','--save', action='store_true', help='Save statistics')
 parser.add_argument('-t','--threads', type=int, help='Number of threads', default=3)
 parser.add_argument('--ttt', type=int, default=640)
@@ -39,6 +40,17 @@ heap.setref()
 
 global mvars
 mvars = {}
+
+logging.basicConfig(filename='myfirstlog.log',
+                    level=logging.DEBUG,
+                    format='%(asctime)s : %(funcName)s : %(message)s')
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+file_handler = logging.FileHandler('myfirstlog.log')
+formatter = logging.Formatter('%(asctime)s : %(funcName)s : %(message)s')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 def todb(x : float) -> float:
     return 10*np.log10(x)
@@ -176,8 +188,8 @@ def handover_callback(model, where):
                             1 - sum(model._beta[p,q,t1,t2]*x[p,n,t1]*x[q,n,t2] for p in range(m_bs) if p != q)
                     )
                 except Exception as error:
-                    print('Error adding lazy constraints to the model %i %i %i %i'%(p,q,t1,t2))
-                    print(error)
+                    logger.warning('Error adding lazy constraints to the model %i %i %i %i'%(p,q,t1,t2))
+                    logger.warning(error)
 
 
 def handover_detection(_vars):
@@ -255,7 +267,8 @@ def load_inputFile(inputFile, beginning = 0, span = 5000):
     heap_stat = heap.heap()
     comp_resources['loading'][1] = heap_stat.size/(1024*1024)
 
-    print(comp_resources['loading'])
+    logger.info('Function processing time %d:'%comp_resources['loading'][0])
+    logger.info('Memory stat: %d'%comp_resources['loading'][1])
 
     return scenario, channel, LOS, network, nodes, R
 
@@ -286,7 +299,9 @@ def snr_processing(scenario, network, nodes, channel, LOS, beginning=0):
     heap_stat = heap.heap()
     comp_resources['snrprocess'][1] = heap_stat.size/(1024*1024)
 
-    print(comp_resources['snrprocess'])
+    logger.info('Function processing time : %d'%comp_resources['snrprocess'][0])
+    logger.info('Memory stat: %d'%comp_resources['snrprocess'][1])
+
     return SNR
 
 def beta_processing(SNR, m_bs, n_ue, offset=3,hysteresis=0, tau=640):
@@ -297,7 +312,9 @@ def beta_processing(SNR, m_bs, n_ue, offset=3,hysteresis=0, tau=640):
     print('Generating Beta Array...')
     for n in range(n_ue):
         for p in range(m_bs):
-            #print('Base Station %i'%(p))
+            print('--------- %2d ----------'%p)
+            print('%3s |%7s | %8s'%('tgt', 'slot', 'snr diff'))
+            print('-----------------------')
             beta.append([])
             handover_points = {}
             for q in range(m_bs):
@@ -317,10 +334,12 @@ def beta_processing(SNR, m_bs, n_ue, offset=3,hysteresis=0, tau=640):
                             #counter -= 1
                             try:
                                 handover_points[t].append([q, np.mean(snr_accumulator)])
-                            except KeyError:
+                            except KeyError as error:
                                 handover_points[t] = [[q, np.mean(snr_accumulator)]]
+                                #logger.debug('Key Error %d at BS %d to BS %d'%(t, p, q))
 
                             beta[p][q][n][t] = 1
+                            print('%4d,%8d,%8d'%(q, t, SNR[q][n][t] - SNR[p][n][t]))
 
 
                         if diff >= 0:
@@ -338,12 +357,10 @@ def beta_processing(SNR, m_bs, n_ue, offset=3,hysteresis=0, tau=640):
                             print('Is possible to handover from %i to %i at %i'%(p,q,t))
                         '''
             
-            print('@@@')
             for t in handover_points.keys():
                 #print(handover_points[t])
                 best_bs = max(handover_points[t], key=operator.itemgetter(1))
                 #'''
-                print(p, t, best_bs)
                 #'''
                 beta[p][best_bs[0]][n][t] = 1
 
@@ -351,7 +368,9 @@ def beta_processing(SNR, m_bs, n_ue, offset=3,hysteresis=0, tau=640):
     heap_stat = heap.heap()
     comp_resources['betaprocess'][1] = heap_stat.size/(1024*1024)
 
-    print(comp_resources['betaprocess'])
+    
+    logger.info('Function processing time : %d'%comp_resources['betaprocess'][0])
+    logger.info('Memory stat: %d'%comp_resources['betaprocess'][1])
     return beta
 
 
@@ -382,6 +401,9 @@ def add_variables(m_bs, n_ue, scenario):
     comp_resources['addvars'][-1] = time.time() - start
     heap_stat = heap.heap()
     comp_resources['addvars'][0] = heap_stat.size/(1024*1024)
+
+    logger.info('Function processing time : %d'%comp_resources['addvars'][0])
+    logger.info('Memory stat: %d'%comp_resources['addvars'][1])
 
     return x, y, u
 
@@ -416,6 +438,8 @@ def model_optimize(model, scenario, network, nodes, SNR, beta, R, m_bs, n_ue):
     comp_resources['addobj'][1] = heap_stat.size/(1024*1024)
 
 
+    logger.info('Function processing time : %d'%comp_resources['addobj'][0])
+    logger.info('Memory stat: %d'%comp_resources['addobj'][1])
 
     ### Compute optimal Solution
     start = time.time()
@@ -437,8 +461,8 @@ def model_optimize(model, scenario, network, nodes, SNR, beta, R, m_bs, n_ue):
 
 
     except gb.GurobiError as error:
-        print('Optimization  failed\n\n')
-        print(error)
+        logging.debug('Optimization  failed\n\n')
+        logging.debug(error)
         end = time.time()
         print(end - start)
         sys.exit()
@@ -446,6 +470,10 @@ def model_optimize(model, scenario, network, nodes, SNR, beta, R, m_bs, n_ue):
     comp_resources['optimize'][0] = time.time() - start
     heap_stat = heap.heap()
     comp_resources['optimize'][1] = heap_stat.size/(1024*1024)
+
+    logger.info('Function processing time : %d'%comp_resources['optimize'][0])
+    logger.info('Memory stat: %d'%comp_resources['optimize'][1])
+
 
 
 ##################### Collecting network results ##############################
@@ -455,7 +483,7 @@ def statistics(x, y, m_bs, SNR, R, scenario, save=True,_print=False, outputFile=
     try:
         kpi = getKpi(x, y, m_bs, 0, scenario['simTime'], SNR, R, nodes[0]['nPackets'])
     except Exception as error:
-        print(error)
+        logging.debug(error)
 
     if save:
         filename = outputFile
@@ -467,24 +495,69 @@ def statistics(x, y, m_bs, SNR, R, scenario, save=True,_print=False, outputFile=
     if _print:
         print(results)
 
+
+        oldv = ''
+        vardict = {}
+        finaldict = {}
+        oldvalue = None
+        for v in model.getVars():
+            varname = v.varName.split('[')
+            varindex = varname[1].split(',')[0]
+            if varname[0]+varindex != oldv:
+                try:
+                    vardict[oldvalue][-1].append(scenario['simTime'])
+                except KeyError:
+                    pass
+
+                if oldv != '':
+                    finaldict[vardict['variable']] = vardict
+                    print(vardict)
+
+                oldv = varname[0]+varindex
+                vardict = {}
+                vardict['variable'] = varname[0]+'_'+varindex
+                oldvalue = None
+
+            if varname[0] == 'y':
+                if v.x != 0:
+                    timeslot = int(varname[1].split(',')[2].split(']')[0])
+                    try:
+                        vardict['timeslot'].append(timeslot)
+                    except KeyError:
+                        vardict['timeslot'] = [timeslot]
+
+
+            else:
+                if v.x != oldvalue:
+                    if oldvalue is not None:
+                        fim = int(varname[1].split(',')[2].split(']')[0]) - 1
+                        vardict[oldvalue][-1].append(fim)
+
+                        try:
+                            vardict[v.x].append([fim+1])
+
+                        except KeyError:
+                            vardict[v.x] = [[fim+1]]
+                    else:
+                        ini = int(varname[1].split(',')[2].split(']')[0])
+                        vardict[v.x] = [[ini]]
+                oldvalue = v.x
+        print(finaldict)
+
+
+            
     comp_resources['log'][0] = time.time() - start
     heap_stat = heap.heap()
     comp_resources['log'][1] = heap_stat.size/(1024*1024)
+
+    logger.info('Function processing time : %d'%comp_resources['log'][0])
+    logger.info('Memory stat: %d'%comp_resources['log'][1])
 
 ############################## PLOT SECTION ###################################
 def plot_stats(model, x, y, SNR, m_bs):
     start = time.time()
     print('Ploting SNR')
     plot = []
-
-    oldv = ''
-    for v in model.getVars():
-        varname = v.varName.split('[')
-        if varname[0] != oldv:
-            print('---',varname[0])
-            oldv = varname[0]
-        if v.x != 0:
-            print('  %s %g' % (v.varName, v.x))
 
     for m in range(m_bs):
         plot.append([])
@@ -538,11 +611,13 @@ def plot_stats(model, x, y, SNR, m_bs):
     comp_resources['plot'][1] = heap_stat.size/(1024*1024)
 
 
+    logger.info('Function processing time : %d'%comp_resources['plot'][0])
+    logger.info('Memory stat: %d'%comp_resources['plot'][1])
 
 
 
 if __name__ == '__main__':
-    proc = subprocess.Popen(['./monitor.sh > rel &'], shell=True)
+    proc = subprocess.Popen(['./monitor.sh &'], shell=True)
 
     scenario, channel, LOS, network, nodes, R = load_inputFile(args.inputFile)
 
@@ -566,7 +641,7 @@ if __name__ == '__main__':
     comp_resources['addconsts'][1] = heap_stat.size/(1024*1024)
 
     model_optimize(model, scenario, network, nodes, SNR, beta, R, m_bs, n_ue)   
-    statistics(x, y, m_bs, SNR, R, scenario, save=args.save, outputFile='instances/opt'+args.outputFile)
+    statistics(x, y, m_bs, SNR, R, scenario, save=args.save, _print=args.Print, outputFile='instances/opt'+args.outputFile)
 
     if args.plot:
         plot_stats(model, x, y, SNR, m_bs)
@@ -584,4 +659,5 @@ if __name__ == '__main__':
     print('X: %g'% x.sum('*','*','*').getValue())
     print('Y: %g'% y.sum('*','*','*').getValue())
     print(comp_resources)
+    print(proc.stdout)
 

@@ -5,6 +5,7 @@
 import numpy as np    
 import gurobipy as gb 
 from gurobipy import GRB
+import logging
 
 def gen_constraint_1(x, m_bs, nodes, resources, SNR,simTime, gen_dict):
     n_ue = len(nodes)
@@ -241,11 +242,9 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
                 for q in M - {p}:
                     if beta[p][q][n][t] == 1:
                         betap[p][n][t] = 0
-                        print('betap[',p,',',t,'] = 0')
                         break
                 for q in M - {p}:
                     if beta[q][p][n][t] == 1:
-                        print('betaq[',p,',',t,'] = 1')
                         betaq[p][n][t] = 1
 
     model.addConstr(x[0,0,0] == 1, 'initial_constr')
@@ -263,13 +262,13 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
                     candidates = []
                     for q in M - {p}:
                         if beta[p][q][n][t] == 1:
-                            print(p, q, t, 'handover_constr')
                             candidates.append(q)
                     try:
                         #model.addConstr((sumu[p,q,n,t] == 1) >> (x[q,n,t] == 1), 'move_constr')
                         model.addGenConstrIndicator(u[p,n,t], False, gb.quicksum(x[q,n,t] for q in candidates), GRB.EQUAL, 1, 'handover_constr')
                         #model.addGenConstrIndicator(u[p,n,t], True, gb.quicksum(x[q,n,t] for q in candidates), GRB.EQUAL, 0, 'handover_constr')
                         model.addGenConstrIndicator(u[p,n,t], True, x[p,n,t] - x[p,n,t-1], GRB.EQUAL, 0, 'handover_constr')
+
                     except Exception as error:
                         print(error)
         
