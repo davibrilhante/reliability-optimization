@@ -500,12 +500,8 @@ def statistics(x, y, m_bs, SNR, R, scenario, save=True,_print=False, outputFile=
     except Exception as error:
         logging.debug(error)
 
-    if save:
-        filename = outputFile
-        with open(filename, 'w') as jsonfile:
-            json.dump(kpi, jsonfile, indent=4)
+    kpi['optimization'] = mvars
 
-    results = json.dumps(kpi, indent=4)
 
     if _print:
         print(results)
@@ -559,7 +555,14 @@ def statistics(x, y, m_bs, SNR, R, scenario, save=True,_print=False, outputFile=
                 oldvalue = v.x
         print(finaldict)
 
+    kpi['variables'] = finaldict
 
+    if save:
+        filename = outputFile
+        with open(filename, 'w') as jsonfile:
+            json.dump(kpi, jsonfile, indent=4)
+
+    results = json.dumps(kpi, indent=4)
             
     comp_resources['log'][0] = time.time() - start
     heap_stat = heap.heap()
