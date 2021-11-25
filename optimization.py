@@ -29,6 +29,8 @@ parser.add_argument('-P','--Print', action='store_true', help='Enables printing 
 parser.add_argument('-s','--save', action='store_true', help='Save statistics')
 parser.add_argument('-t','--threads', type=int, help='Number of threads', default=3)
 parser.add_argument('--ttt', type=int, default=640)
+parser.add_argument('-b','--beginning', type=int, default=0)
+parser.add_argument('-T','--simutime', type=int, default=5000)
 
 
 args = parser.parse_args()
@@ -388,14 +390,27 @@ def model_setting():
     
     return model
 
-def add_variables(m_bs, n_ue, scenario):
+def add_variables(model, m_bs, n_ue, scenario, beta):
     ### Add variables to the model
     start = time.time()
     print('Adding model variables...')
+    M = {i for i in range(m_bs)}
 
     x = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='x')
     y = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='y')
-    u = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='u')
+    #u = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='u')
+
+    u = {}
+    for p in M:
+        for n in range(n_ue):
+            for t in range(scenario['simTime']):
+                for q in M - {p}:
+                    if beta[p][q][n][t]==1:
+                        u[p,n,t] = model.addVar(vtype=GRB.BINARY, 
+                                name='u_{bs}_{ue}_{tempo}'.format(bs=p,ue=n,tempo=t))
+
+
+
     #sumbeta = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='sumbeta')
 
     comp_resources['addvars'][-1] = time.time() - start
@@ -619,7 +634,7 @@ def plot_stats(model, x, y, SNR, m_bs):
 if __name__ == '__main__':
     proc = subprocess.Popen(['./monitor.sh &'], shell=True)
 
-    scenario, channel, LOS, network, nodes, R = load_inputFile(args.inputFile)
+    scenario, channel, LOS, network, nodes, R = load_inputFile(args.inputFile, args.beginning, args.simutime)
 
     m_bs = len(network)
     n_ue = len(nodes)
@@ -628,7 +643,7 @@ if __name__ == '__main__':
     SNR = snr_processing(scenario, network, nodes, channel, LOS)
     beta = beta_processing(SNR, m_bs, n_ue, tau=scenario['ttt'])
     model = model_setting()
-    x, y, u = add_variables(m_bs, n_ue, scenario)
+    x, y, u = add_variables(model, m_bs, n_ue, scenario, beta)
 
     print('Adding model Constraints...')
     start = time.time()
