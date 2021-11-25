@@ -21,12 +21,13 @@ def gen_constraint_1(x, m_bs, nodes, resources, SNR,simTime, gen_dict):
 def gen_constraint_2(x, y, m_bs, nodes, simTime, gen_dict):
     n_ue = len(nodes)
 
+    
     generator = (y[m,n,t] <= x[m,n,t] 
                 for n in range(n_ue)
                     for m in range(m_bs)
-                        for t in range(simTime))
-                        #for arrival in nodes[n]['packets']
-                        #    for t in range(arrival,arrival+nodes[n]['delay']))
+                        #for t in range(simTime))
+                        for arrival in nodes[n]['packets']
+                            for t in range(arrival,arrival+nodes[n]['delay']))
 
     gen_dict['constrs_2'] = generator
 
@@ -82,20 +83,39 @@ def gen_constraint_4(x, beta, m_bs, n_ue, simTime, gen_dict, interval=1):
 def gen_constraint_5(y, m_bs, nodes, simTime, gen_dict):
     n_ue = len(nodes)
 
+    '''
     generator = (sum(sum(y[m,n,t] for t in range(simTime))
                 for m in range(m_bs)) <= nodes[n]['nPackets']
                     for n in range(n_ue))
+    '''
+
+    intervals = {}
+    for n, ue in enumerate(nodes):
+        intervals[n] = []
+        for arrival in ue['packets']:
+            for t in range(arrival, arrival+ue['delay']):
+                intervals[n].append(t)
+
+    generator = (gb.quicksum(gb.quicksum(y[m,n,t] for t in intervals[n]) for m in range(m_bs)) <=
+                    nodes[n]['nPackets'] for n in range(n_ue))
 
     gen_dict['constrs_5'] = generator
 
 def gen_constraint_6(y, m_bs, nodes,  gen_dict):
     n_ue = len(nodes)
 
+    '''
     generator = (sum(sum(y[m,n,t] for t in range(arrival, arrival + nodes[n]['delay']))
                 for m in range(m_bs)) <= 1
                     for n in range(n_ue)
                         for arrival in nodes[n]['packets'])
     
+    '''
+     
+    generator = (gb.quicksum(gb.quicksum(y[m,n,t] for t in range(arrival, arrival + nodes[n]['delay'])) for m in range(m_bs)) <= 1
+                    for n in range(n_ue)
+                        for arrival in nodes[n]['packets'])
+
     gen_dict['constrs_6'] = generator
     
 
@@ -234,9 +254,9 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
             for t in range(1,scenario['simTime']):
                 if betap[p][n][t] == 1:
                     if betaq[p][n][t] == 0:
-                        model.addConstr(x[p,n,t] - x[p,n,t-1] == 0, 'stay_constr')
+                        model.addConstr(x[p,n,t] - x[p,n,t-1] == 0, 'stay_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
                     else:
-                        model.addConstr(x[p,n,t] - x[p,n,t-1] >= 0, 'stay_constr')
+                        model.addConstr(x[p,n,t] - x[p,n,t-1] >= 0, 'stay_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
 
                 else:
                     candidates = []
@@ -246,11 +266,19 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
                     try:
                         aux[p,n,t] = model.addVar(vtype=GRB.INTEGER, ub=scenario['ttt'],
                                 name='aux_{bs}_{ue}_{tempo}'.format(bs=p,ue=n,tempo=t))
+
                         model.addConstr(aux[p,n,t] == scenario['ttt'] - gb.quicksum(x[p,n,k] for k in range(t - scenario['ttt'], t)),
                                         'aux_constr[{bs},{ue},{tempo}]'.format(bs=p,ue=n,tempo=t))
-                        model.addGenConstrMin(u[p,n,t],[1, aux[p,n,t]], name='u_constr[{index[0]},{index[1]},{index[2]}]'.format(index=[p,n,t]))
-                        model.addGenConstrIndicator(u[p,n,t], False, gb.quicksum(x[q,n,t] for q in candidates), GRB.EQUAL, 1, 'handover_constr')
-                        model.addGenConstrIndicator(u[p,n,t], True, x[p,n,t] - x[p,n,t-1], GRB.EQUAL, 0, 'handover_constr')
+
+                        model.addGenConstrMin(u[p,n,t],[1, aux[p,n,t]], name='u_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+
+                        model.addGenConstrIndicator(
+                                u[p,n,t], False, gb.quicksum(x[q,n,t] for q in candidates), 
+                                GRB.EQUAL, 1, 'handover_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+
+                        model.addGenConstrIndicator(
+                                u[p,n,t], True, x[p,n,t] - x[p,n,t-1], 
+                                GRB.EQUAL, 0, 'stay_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
 
                     except Exception as error:
                         print(error)
@@ -281,6 +309,7 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
         print(error)
         exit()
 
+    '''
     gen_constraint_7(y, m_bs, nodes, constrs_dict)
 
     try:
@@ -313,6 +342,7 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
         print('error adding constraints #9')
         print(error)
         exit()
+    '''
 
     gen_constraint_10(x, m_bs, n_ue, scenario['simTime'], constrs_dict, 'constrs_10')
 
@@ -325,6 +355,7 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
         print(error)
         exit()
 
+    '''
     gen_constraint_10(y, m_bs, n_ue, scenario['simTime'], constrs_dict, 'constrs_11')
 
     try:
@@ -335,3 +366,4 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
         print('Error adding constraints #11')
         print(error)
         exit()
+    '''

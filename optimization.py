@@ -390,15 +390,26 @@ def model_setting():
     
     return model
 
-def add_variables(model, m_bs, n_ue, scenario, beta):
+def add_variables(model, scenario, network, nodes, SNR, beta):
     ### Add variables to the model
     start = time.time()
     print('Adding model variables...')
+    m_bs = len(network)
     M = {i for i in range(m_bs)}
 
     x = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='x')
-    y = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='y')
+    #y = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='y')
     #u = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='u')
+
+    y = {}
+    for n, ue in enumerate(nodes):
+        for arrival in ue['packets']:
+            for t in range(arrival,arrival + ue['delay']):
+                for m in M:
+                    y[m,n,t] = model.addVar(vtype=GRB.BINARY,
+                                name='y[{bs},{ue},{tempo}]'.format(bs=m,ue=n,tempo=t))
+
+
 
     u = {}
     for p in M:
@@ -407,7 +418,8 @@ def add_variables(model, m_bs, n_ue, scenario, beta):
                 for q in M - {p}:
                     if beta[p][q][n][t]==1:
                         u[p,n,t] = model.addVar(vtype=GRB.BINARY, 
-                                name='u_{bs}_{ue}_{tempo}'.format(bs=p,ue=n,tempo=t))
+                                name='u[{bs},{ue},{tempo}]'.format(bs=p,ue=n,tempo=t))
+                        break
 
 
 
@@ -428,15 +440,24 @@ def model_optimize(model, scenario, network, nodes, SNR, beta, R, m_bs, n_ue):
     # 1 - Maximize the number of users which delay and capacity requirements were
     # fulfilled
     print('Setting model objective function...')
+    intervals = {}
+    for n, ue in enumerate(nodes):
+        intervals[n] = []
+        for arrival in ue['packets']:
+            for t in range(arrival, arrival+ue['delay']):
+                intervals[n].append(t)
+
     start = time.time()
     model.setObjective(
-            sum(
-                sum(
-                    sum(
+            gb.quicksum(
+                gb.quicksum(
+                    gb.quicksum(
                         #(1-gamma[m][n][t])*(x[m][n][t]+y[m][n][t]) 
                         #(x[m,n,t]+y[m,n,t]) 
-                        (SNR[m][n][t]*x[m,n,t])+y[m,n,t]
-                        for t in range(scenario['simTime'])) 
+                        (SNR[m][n][t]*x[m,n,t])
+                            for t in range(scenario['simTime']))
+                        + gb.quicksum(y[m,n,t] 
+                            for t in intervals[n])
                     for n in range(n_ue)) 
                 for m in range(m_bs)), 
             GRB.MAXIMIZE
@@ -603,12 +624,18 @@ def plot_stats(model, x, y, SNR, m_bs):
         #plt.plot(plot)
         plt.scatter(timeslots,plot[-1], marker = '+', label=m)#, color = colors[m])
 
+    intervals = {}
+    for n, ue in enumerate(nodes):
+        intervals[n] = []
+        for arrival in ue['packets']:
+            for t in range(arrival, arrival+ue['delay']):
+                intervals[n].append(t)
 
     plot = []
     for m in range(m_bs):
         plot.append([])
         timeslots = []
-        for t in range(scenario['simTime']):
+        for t in intervals[0]:
             if y[m,0,t].getAttr('X') == 1:
                 plot[-1].append(0)
                 timeslots.append(t)
@@ -646,7 +673,7 @@ if __name__ == '__main__':
     SNR = snr_processing(scenario, network, nodes, channel, LOS)
     beta = beta_processing(SNR, m_bs, n_ue, tau=scenario['ttt'])
     model = model_setting()
-    x, y, u = add_variables(model, m_bs, n_ue, scenario, beta)
+    x, y, u = add_variables(model, scenario, network, nodes, SNR, beta)
 
     print('Adding model Constraints...')
     start = time.time()
@@ -675,7 +702,8 @@ if __name__ == '__main__':
     print(mvars)
     print('obj: %g'% model.objVal)
     print('X: %g'% x.sum('*','*','*').getValue())
-    print('Y: %g'% y.sum('*','*','*').getValue())
+    #print('Y: %g'% y.sum('*','*','*').getValue())
+    print('Y: %g'% sum([i.x for i in y.values()]))
     print(comp_resources)
     print(proc.stdout)
 
