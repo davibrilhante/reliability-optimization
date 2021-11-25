@@ -503,13 +503,13 @@ def statistics(x, y, m_bs, SNR, R, scenario, save=True,_print=False, outputFile=
     kpi['optimization'] = mvars
 
 
+    finaldict = {}
     if _print:
         print(results)
 
 
         oldv = ''
         vardict = {}
-        finaldict = {}
         oldvalue = None
         for v in model.getVars():
             varname = v.varName.split('[')
