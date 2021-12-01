@@ -247,8 +247,16 @@ def load_inputFile(inputFile, beginning = 0, span = 5000):
     scenario['simTime'] = min(span, scenario['simTime'])
 
     for ue in nodes:
-        ue['nPackets'] = int(scenario['simTime']/120 - 1)
-        ue['packets'] = ue['packets'][:ue['nPackets']]
+        #ue['nPackets'] = int(scenario['simTime']/120 - 1)
+        #ue['packets'] = ue['packets'][:ue['nPackets']]
+        temp = []
+        for arrival in ue['packets']:
+            if arrival < scenario['simTime']:
+                temp.append(arrival)
+        ue['packets'] = temp
+        ue['nPackets'] = len(temp)
+
+
         ue['capacity'] = 750e6 #Bits per second
         ue['threshold'] = 10**(ue['threshold']/10)
 
