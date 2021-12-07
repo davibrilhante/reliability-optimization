@@ -27,7 +27,7 @@ def gen_constraint_2(x, y, m_bs, nodes, simTime, gen_dict):
                     for m in range(m_bs)
                         #for t in range(simTime))
                         for arrival in nodes[n]['packets']
-                            for t in range(arrival,arrival+nodes[n]['delay']))
+                            for t in range(arrival,min(arrival+nodes[n]['delay'], simTime)))
 
     gen_dict['constrs_2'] = generator
 
