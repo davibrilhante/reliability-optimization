@@ -57,6 +57,9 @@ logger.addHandler(file_handler)
 def todb(x : float) -> float:
     return 10*np.log10(x)
 
+def tolin(x : float) -> float:
+    return 10**(x/10)
+
 def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
     #create dict
     kpi = {}
@@ -258,7 +261,7 @@ def load_inputFile(inputFile, beginning = 0, span = 5000):
 
 
         ue['capacity'] = 750e6 #Bits per second
-        ue['threshold'] = 10**(ue['threshold']/10)
+        ue['threshold'] = tolin(15) #10**(ue['threshold']/10)
 
         ue['position']['x'] += (ue['speed']['x']/3.6)*(beginning*1e-3)
         ue['position']['y'] += (ue['speed']['y']/3.6)*(beginning*1e-3)
@@ -322,9 +325,9 @@ def beta_processing(SNR, m_bs, n_ue, offset=3,hysteresis=0, tau=640):
     print('Generating Beta Array...')
     for n in range(n_ue):
         for p in range(m_bs):
-            print('--------- %2d ----------'%p)
-            print('%3s |%7s | %8s'%('tgt', 'slot', 'snr diff'))
-            print('-----------------------')
+            logging.info('--------- %2d ----------'%p)
+            logging.info('%3s |%7s | %8s'%('tgt', 'slot', 'snr diff'))
+            logging.info('-----------------------')
             beta.append([])
             handover_points = {}
             for q in range(m_bs):
@@ -349,7 +352,7 @@ def beta_processing(SNR, m_bs, n_ue, offset=3,hysteresis=0, tau=640):
                                 #logger.debug('Key Error %d at BS %d to BS %d'%(t, p, q))
 
                             beta[p][q][n][t] = 1
-                            print('%4d,%8d,%8d'%(q, t, SNR[q][n][t] - SNR[p][n][t]))
+                            logging.info('%4d,%8d,%8d'%(q, t, SNR[q][n][t] - SNR[p][n][t]))
 
 
                         if diff >= 0:
@@ -405,9 +408,20 @@ def add_variables(model, scenario, network, nodes, SNR, beta):
     m_bs = len(network)
     M = {i for i in range(m_bs)}
 
-    x = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='x')
+    #x = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='x')
     #y = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='y')
     #u = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='u')
+
+    x = {}
+    for m in M:
+        for n, ue in enumerate(nodes):
+            ue[m, 'available'] = set()
+            for t in range(scenario['simTime']):
+                if SNR[m][n][t] >= ue['threshold']:
+                    x[m,n,t] = model.addVar(vtype=GRB.BINARY,
+                                name='x[{bs},{ue},{tempo}]'.format(bs=m,ue=n,tempo=t))
+                    ue[m, 'available'].add(t)
+
 
     y = {}
     for n, ue in enumerate(nodes):
@@ -463,7 +477,7 @@ def model_optimize(model, scenario, network, nodes, SNR, beta, R, m_bs, n_ue):
                         #(1-gamma[m][n][t])*(x[m][n][t]+y[m][n][t]) 
                         #(x[m,n,t]+y[m,n,t]) 
                         (SNR[m][n][t]*x[m,n,t])
-                            for t in range(scenario['simTime']))
+                            for t in nodes[n][m,'available'])
                         + gb.quicksum(y[m,n,t] 
                             for t in intervals[n])
                     for n in range(n_ue)) 
@@ -610,7 +624,7 @@ def plot_stats(model, x, y, SNR, m_bs):
         plot.append([])
         timeslots = []
         for t in range(scenario['simTime']):
-            if x[m,0,t].getAttr('X') == 1:
+            if t in nodes[0][m,'available'] and x[m,0,t].getAttr('X') == 1:
                 plot[-1].append(todb(SNR[m][0][t]))
                 timeslots.append(t)
                 #print(t, SNR[m][0][t])
@@ -704,12 +718,13 @@ if __name__ == '__main__':
             for m in range(m_bs):
                 for n in range(n_ue):
                     for t in range(scenario['simTime']):
-                        if x[m,n,t].x == 1:
+                        if t in nodes[n][m,'available'] and x[m,n,t].x == 1:
                             output_plot.write(str(t)+','+str(m)+','+str(todb(SNR[m][n][t]))+'\n')
 
     print(mvars)
     print('obj: %g'% model.objVal)
-    print('X: %g'% x.sum('*','*','*').getValue())
+    #print('X: %g'% x.sum('*','*','*').getValue())
+    print('X: %g'% sum([i.x for i in x.values()]))
     #print('Y: %g'% y.sum('*','*','*').getValue())
     print('Y: %g'% sum([i.x for i in y.values()]))
     print(comp_resources)

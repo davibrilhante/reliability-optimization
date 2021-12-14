@@ -13,7 +13,7 @@ def gen_constraint_1(x, m_bs, nodes, resources, SNR,simTime, gen_dict):
                         resources[m]*np.log2(1+SNR[m][n][t])
                 for n in range(n_ue)
                     for m in range(m_bs)
-                        for t in range(simTime))
+                        for t in nodes[n][m,'available'])
 
     gen_dict['constrs_1'] = generator
 
@@ -27,7 +27,8 @@ def gen_constraint_2(x, y, m_bs, nodes, simTime, gen_dict):
                     for m in range(m_bs)
                         #for t in range(simTime))
                         for arrival in nodes[n]['packets']
-                            for t in range(arrival,min(arrival+nodes[n]['delay'], simTime)))
+                            for t in range(arrival,min(arrival+nodes[n]['delay'], simTime))
+                                if t in nodes[n][m,'available'])
 
     gen_dict['constrs_2'] = generator
 
@@ -147,8 +148,17 @@ def gen_constraint_9(y, m_bs, nodes, gen_dict):
 
     gen_dict['constrs_9'] = generator
 
-def gen_constraint_10(Var, m_bs, n_ue, simTime, gen_dict, Key='constrs_10'):
-    generator = (sum(Var[m,n,t] for m in range(m_bs)) <= 1 
+def gen_constraint_10(Var, m_bs, nodes, simTime, gen_dict, Key='constrs_10'):
+    n_ue = len(nodes)
+    valid_bs = {}
+    for n in range(n_ue):
+        for t in range(simTime):
+            valid_bs[t] = set()
+            for m in range(m_bs):
+                if t in nodes[n][m,'available']:
+                    valid_bs[t].add(m)
+        
+    generator = (sum(Var[m,n,t] for m in valid_bs[t]) <= 1 
                 for t in range(simTime)
                     for n in range(n_ue))
 
@@ -169,11 +179,11 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
 
     try:
         model.addConstrs(constrs_dict['constrs_1'], name='capcity_constr')
-        print('Constraints #1 added...')
+        logging.info('Constraints #1 added...')
 
     except Exception as error:
-        print('Error adding constraints #1')
-        print(error)
+        logging.warning('E301: Error adding constraints #1')
+        logging.warning(error)
         exit()
 
 
@@ -181,14 +191,15 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
 
     try:
         model.addConstrs(constrs_dict['constrs_2'], name='delay_constr')
-        print('Constraints #2 added...')
+        logging.info('Constraints #2 added...')
 
     except Exception as error:
-        print('Error adding constraints #2')
-        print(error)
+        logging.warning('E302: Error adding constraints #2')
+        logging.warning(error)
         exit()
 
 
+    '''
     gen_constraint_3(x, m_bs, nodes, SNR, scenario['simTime'], constrs_dict)
 
     try:
@@ -201,7 +212,6 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
         exit()
 
 
-    '''
     try:
         aux = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.INTEGER, ub=scenario['ttt'], name ='aux')
         generator = (aux[p,n,t] == scenario['ttt'] - gb.quicksum(x[p,n,k] for k in range(t - scenario['ttt'], t))
@@ -251,37 +261,70 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
     aux = {}
     for p in M:
         for n in range(n_ue):
+            ho_range = {k for k in range(scenario['simTime'])}
             for t in range(1,scenario['simTime']):
-                if betap[p][n][t] == 1:
-                    if betaq[p][n][t] == 0:
-                        model.addConstr(x[p,n,t] - x[p,n,t-1] == 0, 'stay_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+                if (t in nodes[n][p,'available']) and (t-1 in nodes[n][p,'available']):
+                    if betap[p][n][t] == 1:
+                        try:
+                            if betaq[p][n][t] == 0:
+                                model.addConstr(x[p,n,t] - x[p,n,t-1] == 0, 'stay_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+                            else:
+                                model.addConstr(x[p,n,t] - x[p,n,t-1] >= 0, 'stay_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+                        except Exception as error:
+                            logging.warning('E303: ', error)
+
+
                     else:
-                        model.addConstr(x[p,n,t] - x[p,n,t-1] >= 0, 'stay_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+                        candidates = []
+                        for q in M - {p}:
+                            if (beta[p][q][n][t] == 1) and (t in nodes[n][q,'available']):
+                                candidates.append(q)
+                        try:
+                            aux[p,n,t] = model.addVar(vtype=GRB.INTEGER, ub=scenario['ttt'],
+                                    name='aux_{bs}_{ue}_{tempo}'.format(bs=p,ue=n,tempo=t))
 
-                else:
-                    candidates = []
-                    for q in M - {p}:
-                        if beta[p][q][n][t] == 1:
-                            candidates.append(q)
-                    try:
-                        aux[p,n,t] = model.addVar(vtype=GRB.INTEGER, ub=scenario['ttt'],
-                                name='aux_{bs}_{ue}_{tempo}'.format(bs=p,ue=n,tempo=t))
+                            extra = 0
+                            valid = set()
 
-                        model.addConstr(aux[p,n,t] == scenario['ttt'] - gb.quicksum(x[p,n,k] for k in range(t - scenario['ttt'], t)),
-                                        'aux_constr[{bs},{ue},{tempo}]'.format(bs=p,ue=n,tempo=t))
+                            for k in range(t - scenario['ttt'], t):
+                                if k in nodes[n][p,'available']:
+                                    valid.add(k)
+                                else:
+                                    extra += 1
 
-                        model.addGenConstrMin(u[p,n,t],[1, aux[p,n,t]], name='u_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+                            # if valid_range:
+                            #if ho_range.issubset(nodes[n][p,'available']):
+                            model.addConstr(aux[p,n,t] == scenario['ttt'] - extra - gb.quicksum(x[p,n,k] for k in valid),
+                                            'aux_constr[{bs},{ue},{tempo}]'.format(bs=p,ue=n,tempo=t))
+                            #else:
+                            #    model.addConstr(aux[p,n,t] == scenario['ttt'], 'aux_constr[{bs},{ue},{tempo}]'.format(bs=p,ue=n,tempo=t))
 
-                        model.addGenConstrIndicator(
-                                u[p,n,t], False, gb.quicksum(x[q,n,t] for q in candidates), 
-                                GRB.EQUAL, 1, 'handover_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+                        except Exception as error:
+                            logging.warning('E304: ', error)
 
-                        model.addGenConstrIndicator(
-                                u[p,n,t], True, x[p,n,t] - x[p,n,t-1], 
-                                GRB.EQUAL, 0, 'stay_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+                        try:
+                            model.addGenConstrMin(u[p,n,t],[1, aux[p,n,t]], name='u_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
 
-                    except Exception as error:
-                        print(error)
+                        except Exception as error:
+                            logging.warnning('E307: ', error)
+
+                        try:
+                            model.addGenConstrIndicator(
+                                    u[p,n,t], False, gb.quicksum(x[q,n,t] for q in candidates), 
+                                    GRB.EQUAL, 1, 'handover_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+                        except Exception as error:
+                            logging.warning('E308: ', error)
+
+                        try:
+                            model.addGenConstrIndicator(
+                                    u[p,n,t], True, x[p,n,t] - x[p,n,t-1], 
+                                    GRB.EQUAL, 0, 'stay_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+                        except Exception as error:
+                            logging.warning('E309: ', error)
+
+                            ho_range.remove(t - scenario['ttt'])
+                            ho_range.add(t)
+
         
 
 
@@ -290,11 +333,11 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
 
     try:
         model.addConstrs(constrs_dict['constrs_5'], name='max_pkt_constr')
-        print('Constraints #5 added...')
+        logging.info('Constraints #5 added...')
 
     except Exception as error:
-        print('Error adding constraints #5')
-        print(error)
+        logging.warning('E305: Error adding constraints #5')
+        logging.warning(error)
         exit()
 
 
@@ -302,11 +345,11 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
 
     try:
         model.addConstrs(constrs_dict['constrs_6'], name='delay_pkt_constr')
-        print('constraints #6 added...')
+        logging.info('constraints #6 added...')
 
     except Exception as error:
-        print('error adding constraints #6')
-        print(error)
+        logging.warning('E306: error adding constraints #6')
+        logging.warning(error)
         exit()
 
     '''
@@ -344,15 +387,15 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
         exit()
     '''
 
-    gen_constraint_10(x, m_bs, n_ue, scenario['simTime'], constrs_dict, 'constrs_10')
+    gen_constraint_10(x, m_bs, nodes, scenario['simTime'], constrs_dict)
 
     try:
         model.addConstrs(constrs_dict['constrs_10'], name='x_constr')
-        print('Constraints #10 added...')
+        logging.info('Constraints #10 added...')
 
     except Exception as error:
-        print('Error adding constraints #10')
-        print(error)
+        logging.warning('E310: Error adding constraints #10')
+        loggung.warning(error)
         exit()
 
     '''
