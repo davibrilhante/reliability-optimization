@@ -72,16 +72,23 @@ def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
     #get average snr
     for m in range(m_bs):
         for t in range(simTime):
-            if x[m,n_ue,t].getAttr('X') == 1:
-                #val = x[m][n_ue][t]*SNR[m][n_ue][t]
-                val = x[m,n_ue,t].getAttr('X')*SNR[m][n_ue][t]
-                linearSnr.append(val)
-                snr.append(todb(val))
-                cap.append(BW[m]*np.log2(1+val))
+            try:
+                if x[m,n_ue,t].getAttr('X') == 1:
+                    #val = x[m][n_ue][t]*SNR[m][n_ue][t]
+                    val = x[m,n_ue,t].getAttr('X')*SNR[m][n_ue][t]
+                    linearSnr.append(val)
+                    snr.append(todb(val))
+                    cap.append(BW[m]*np.log2(1+val))
+            except KeyError:
+                pass
+            
+            try:
+                if y[m,n_ue,t].getAttr('X')==1:
+                    kpi['deliveryRate']+=1
+                    kpi['partDelay']+=1
+            except KeyError:
+                pass
 
-            if y[m,n_ue,t].getAttr('X')==1:
-                kpi['deliveryRate']+=1
-                kpi['partDelay']+=1
 
     kpi['deliveryRate']/=nPackets
     kpi['partDelay']/=nPackets
@@ -93,16 +100,19 @@ def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
     associated = [[],[],[]]
     for t in range(simTime):
         for m in range(m_bs):
-            if x[m,n,t].getAttr('X') == 1:
-                if (len(associated[0]) > 0 and associated[0][-1] != m) or len(associated[0])==0:
-                    if len(associated[0]) > 1: 
-                        associated[2].append(todb(SNR[m][n_ue][t]) - 
-                                10*np.log10(SNR[associated[0][-1]][n_ue][t-args.ttt]))
-                    else:
-                        associated[2].append(0)
+            try:
+                if x[m,n_ue,t].getAttr('X') == 1:
+                    if (len(associated[0]) > 0 and associated[0][-1] != m) or len(associated[0])==0:
+                        if len(associated[0]) > 1: 
+                            associated[2].append(todb(SNR[m][n_ue][t]) - 
+                                    10*np.log10(SNR[associated[0][-1]][n_ue][t-args.ttt]))
+                        else:
+                            associated[2].append(0)
 
-                    associated[0].append(m)
-                    associated[1].append(t)
+                        associated[0].append(m)
+                        associated[1].append(t)
+            except KeyError:
+                pass
 
     num = 0
     for m in range(m_bs):
@@ -729,4 +739,3 @@ if __name__ == '__main__':
     print('Y: %g'% sum([i.x for i in y.values()]))
     print(comp_resources)
     print(proc.stdout)
-
