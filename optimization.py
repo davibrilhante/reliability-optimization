@@ -20,20 +20,22 @@ import logging
 from add_constraints import add_all_constraints
 from decompressor import decompressor
 
-parser = argparse.ArgumentParser()
-parser.add_argument('-i','--inputFile', help='Instance json input file')
-parser.add_argument('-o','--outputFile', default='results', help='outputs json result file')
-parser.add_argument('-r','--report', default='rel', help='cpu and memory resources profiling report file')
-parser.add_argument('-p','--plot', action='store_true', help='Enables plot')
-parser.add_argument('-P','--Print', action='store_true', help='Enables printing variables')
-parser.add_argument('-s','--save', action='store_true', help='Save statistics')
-parser.add_argument('-t','--threads', type=int, help='Number of threads', default=3)
-parser.add_argument('--ttt', type=int, default=640)
-parser.add_argument('-b','--beginning', type=int, default=0)
-parser.add_argument('-T','--simutime', type=int, default=5000)
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i','--inputFile', help='Instance json input file')
+    parser.add_argument('-o','--outputFile', default='results', help='outputs json result file')
+    parser.add_argument('-r','--report', default='rel', help='cpu and memory resources profiling report file')
+    parser.add_argument('-p','--plot', action='store_true', help='Enables plot')
+    parser.add_argument('-P','--Print', action='store_true', help='Enables printing variables')
+    parser.add_argument('-s','--save', action='store_true', help='Save statistics')
+    #parser.add_argument('-t','--threads', type=int, help='Number of threads', default=3)
+    parser.add_argument('--ttt', type=int, default=640)
+    parser.add_argument('-b','--beginning', type=int, default=0)
+    parser.add_argument('-T','--simutime', type=int, default=5000)
 
 
-args = parser.parse_args()
+    args = parser.parse_args()
+    return args
 
 heap = hpy()
 heap_status_0 = heap.heap()
@@ -327,7 +329,7 @@ def snr_processing(scenario, network, nodes, channel, LOS, beginning=0):
 
     return SNR
 
-def beta_processing(SNR, m_bs, n_ue, offset=3,hysteresis=0, tau=640):
+def beta_processing(SNR, m_bs, n_ue, simTime, offset=3,hysteresis=0, tau=640):
     # Creating Beta array (handover flag)
     start = time.time()
     beta = []
@@ -346,7 +348,7 @@ def beta_processing(SNR, m_bs, n_ue, offset=3,hysteresis=0, tau=640):
                 snr_accumulator = []
                 if p != q:
                     beta[p][q].append([])
-                    for t in range(scenario['simTime']):
+                    for t in range(simTime):
                         diff = todb(SNR[q][n][t]) - (todb(SNR[p][n][t]) + 
                                  offset + 2*hysteresis)
 
@@ -407,7 +409,7 @@ def model_setting():
 
     ### Quadratic constraints control
     model.presolve().setParam(GRB.Param.PreQLinearize,1)
-    model.setParam(GRB.Param.Threads, args.threads)
+    #model.setParam(GRB.Param.Threads, args.threads)
     
     return model
 
@@ -416,6 +418,7 @@ def add_variables(model, scenario, network, nodes, SNR, beta):
     start = time.time()
     print('Adding model variables...')
     m_bs = len(network)
+    n_ue = len(nodes)
     M = {i for i in range(m_bs)}
 
     #x = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='x')
@@ -466,7 +469,7 @@ def add_variables(model, scenario, network, nodes, SNR, beta):
 
     return x, y, u
 
-def model_optimize(model, scenario, network, nodes, SNR, beta, R, m_bs, n_ue):
+def model_optimize(model, x, y, scenario, network, nodes, SNR, beta, R, m_bs, n_ue):
     ### Set objective function
     #
     # 1 - Maximize the number of users which delay and capacity requirements were
@@ -517,6 +520,7 @@ def model_optimize(model, scenario, network, nodes, SNR, beta, R, m_bs, n_ue):
         end = time.time()
         print(end - start)
 
+
         mvars.update({
             'nvars': model.getAttr('numVars'),
             'nconst': model.getAttr('numConstrs'),
@@ -524,7 +528,8 @@ def model_optimize(model, scenario, network, nodes, SNR, beta, R, m_bs, n_ue):
             'ngconst': model.getAttr('numGenConstrs'),
             'status': model.Status == GRB.OPTIMAL,
             'runtime': model.getAttr('Runtime'),
-            'node': model.getAttr('nodecount')
+            'node': model.getAttr('nodecount'),
+            'obj': model.objVal,
         })
 
 
@@ -535,12 +540,17 @@ def model_optimize(model, scenario, network, nodes, SNR, beta, R, m_bs, n_ue):
         print(end - start)
         sys.exit()
 
+
+
+
     comp_resources['optimize'][0] = time.time() - start
     heap_stat = heap.heap()
     comp_resources['optimize'][1] = heap_stat.size/(1024*1024)
 
     logger.info('Function processing time : %d'%comp_resources['optimize'][0])
     logger.info('Memory stat: %d'%comp_resources['optimize'][1])
+
+    return mvars
 
 
 
@@ -567,6 +577,7 @@ def statistics(x, y, m_bs, SNR, R, scenario, save=True,_print=False, outputFile=
         for v in model.getVars():
             varname = v.varName.split('[')
             varindex = varname[1].split(',')[0]
+
             if varname[0]+varindex != oldv:
                 try:
                     vardict[oldvalue][-1].append(scenario['simTime'])
@@ -644,7 +655,7 @@ def plot_stats(model, x, y, SNR, m_bs):
             plt.scatter(timeslots,plot[-1], label=m)#, color=colors[m])
 
     plot = []
-    for m in range(5):
+    for m in range(6):
         plot.append([])
         timeslots = []
         for t in range(scenario['simTime']):
@@ -691,19 +702,16 @@ def plot_stats(model, x, y, SNR, m_bs):
     logger.info('Function processing time : %d'%comp_resources['plot'][0])
     logger.info('Memory stat: %d'%comp_resources['plot'][1])
 
-
-
-if __name__ == '__main__':
-    proc = subprocess.Popen(['./monitor.sh &'], shell=True)
-
-    scenario, channel, LOS, network, nodes, R = load_inputFile(args.inputFile, args.beginning, args.simutime)
+def test_api(inputFile, beginning = 0, simutime = 50000, ttt = 640):
+    scenario, channel, LOS, network, nodes, R = load_inputFile(inputFile, 0, simutime)
 
     m_bs = len(network)
     n_ue = len(nodes)
-    scenario['ttt'] = args.ttt
+    scenario['ttt'] = ttt
+    scenario['simTime'] = simutime
 
     SNR = snr_processing(scenario, network, nodes, channel, LOS)
-    beta = beta_processing(SNR, m_bs, n_ue, tau=scenario['ttt'])
+    beta = beta_processing(SNR, m_bs, n_ue, simTime=scenario['simTime'], tau=scenario['ttt'])
     model = model_setting()
     x, y, u = add_variables(model, scenario, network, nodes, SNR, beta)
 
@@ -717,7 +725,84 @@ if __name__ == '__main__':
     heap_stat = heap.heap()
     comp_resources['addconsts'][1] = heap_stat.size/(1024*1024)
 
-    model_optimize(model, scenario, network, nodes, SNR, beta, R, m_bs, n_ue)   
+    result = model_optimize(model, x, y, scenario, network, nodes, SNR, beta, R, m_bs, n_ue)
+
+    intervals = {}
+    for n, ue in enumerate(nodes):
+        intervals[n] = []
+        for arrival in ue['packets']:
+            for t in range(arrival, arrival+ue['delay']):
+                intervals[n].append(t)
+    var_x = 0
+    var_y = 0
+
+    old_bs = None
+    entry = 0
+    assoc = []
+
+    pre_objval = 0
+    result['assoc'] = []
+    for t in range(scenario['simTime']):
+        for n in range(n_ue):
+            for m in range(m_bs):
+                if t in nodes[n][m,'available'] and x[m,n,t].x == 1:
+                    var_x += 1
+                    if m != old_bs:
+                        old_bs = m
+                        result['assoc'].append([m, t])
+
+                    if t < beginning:
+                        pre_objval += SNR[m][n][t]
+
+                if t in intervals[n] and y[m,n,t].x == 1:
+                    var_y += 1
+
+                    if t < beginning:
+                        pre_objval += 1
+
+    
+    for (bs, entry) in sorted(result['assoc'], key=lambda x: x[1], reverse=True):
+        if entry < beginning or len(result['assoc']) == 1:
+            result['last_bs'] = bs
+            result['assoc_time'] = beginning - entry
+            break
+
+    result['pre_objval'] = pre_objval
+    result['x'] = var_x
+    result['y'] = var_y
+
+
+
+    return result, SNR, network, nodes
+
+
+if __name__ == '__main__':
+    proc = subprocess.Popen(['./monitor.sh &'], shell=True)
+
+    args = get_args()
+
+    scenario, channel, LOS, network, nodes, R = load_inputFile(args.inputFile, args.beginning, args.simutime)
+
+    m_bs = len(network)
+    n_ue = len(nodes)
+    scenario['ttt'] = args.ttt
+
+    SNR = snr_processing(scenario, network, nodes, channel, LOS)
+    beta = beta_processing(SNR, m_bs, n_ue, simTime=scenario['simTime'], tau=scenario['ttt'])
+    model = model_setting()
+    x, y, u = add_variables(model, scenario, network, nodes, SNR, beta)
+
+    print('Adding model Constraints...')
+    start = time.time()
+
+    Vars = [x, y, u]
+    add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario)
+
+    comp_resources['addconsts'][0] = time.time() - start
+    heap_stat = heap.heap()
+    comp_resources['addconsts'][1] = heap_stat.size/(1024*1024)
+
+    model_optimize(model, x, y, scenario, network, nodes, SNR, beta, R, m_bs, n_ue)   
     statistics(x, y, m_bs, SNR, R, scenario, save=args.save, _print=args.Print, outputFile='instances/opt'+args.outputFile)
 
     if args.plot:

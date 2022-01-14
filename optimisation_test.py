@@ -7,6 +7,7 @@ import argparse
 import json
 import numpy as np
 from decompressor import decompressor
+from optimization import test_api
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-i','--inputFile', help='Instance json input file')
@@ -19,9 +20,13 @@ parser.add_argument('-b','--begin', type=int, default=0,
 parser.add_argument('--ttt', type=int, default=640, 
                         help='System time to trigger')
 parser.add_argument('--initialize', type=int, nargs=3)
+parser.add_argument('-s','--seed', type=int, default=1, 
+                        help='seed')
+
 
 args = parser.parse_args()
 
+np.random.seed(args.seed)
 
 def todb(x : float) -> float:
     return 10*np.log10(x)
@@ -117,6 +122,8 @@ def check_handover(s_bs : dict, t_bs : dict, SNR : list, start : int, tau : int,
         handover = 0
         if start > tau:
             for k in range(start - tau, start):
+                if s_bs['index'] == 3 and t_bs['index'] == 5:
+                    print(k, SNR[s_bs['index']][0][k], SNR[t_bs['index']][0][k])
                 serving = todb(SNR[s_bs['index']][0][k])
                 target = todb(SNR[t_bs['index']][0][k])
 
@@ -133,6 +140,13 @@ def check_handover(s_bs : dict, t_bs : dict, SNR : list, start : int, tau : int,
 
         else:
             return False
+    else:
+        return False
+
+def check_disconnection(bs : dict, tolerance : int, SNR : list, slot : int) -> bool:
+    if todb(SNR[bs['index']][0][slot]) < tolerance:
+        return True
+
     else:
         return False
 
@@ -160,27 +174,38 @@ def eval_comb(combination : list, ho_events : list, SNR : list, nodes : list, st
     serv_bs = combination[0]
     final_seq = []
     obj_value = 0
+    disconnected_interval = 0
 
+    print('serv',serv_bs, start)
     for targ_bs in combination[1:]:
         for t in range(start, end):
             events = []
             bs_seq = [serv_bs]
             if t - start >= tau - args.initialize[1]:
+                # IF THERE IS A HANDOVER OPPORTUNITY
                 if check_handover(serv_bs, targ_bs, SNR, t, tau, 3, 0):
+                    # IF STILL THERE IS TIME AND BASE STATIONS, CHECK FOR FURTHER HANDOVERS
                     if (end - start > 1) and len(combination[2:]) > 1:
+                        # CALL THE FUNCTION RECURSIVELY TO CHECK FOR HANDOVERS
                         t_bs, event = eval_comb(combination[1:], events, SNR, nodes, t, end, tau, True)
+
                         bs_seq += t_bs
                         events += event
 
+                        # AFTER RECURSIONS, RETURN THE SEQUENCE OF BS AND WHEN HANDOVER TO THEM
                         if recursion:
                             return bs_seq, events
 
-                    else: 
+                    # IF THERE IS NO TIME OR MORE BS, DESPITE A HANDOVER IS POSSIBLE
+                    # THEN RETURN THE LAST BS AND TIME SLOT
+                    else:
                         if recursion:
                             return [targ_bs], [t]
+
                         else:
                             bs_seq.append(targ_bs)
                             events.append(t)
+
 
                     current_objval = calc_objvalue(bs_seq, events, SNR, nodes, 0, start, end)
                     
@@ -189,49 +214,56 @@ def eval_comb(combination : list, ho_events : list, SNR : list, nodes : list, st
                         final_seq = bs_seq
                         ho_events = events
 
+
                 else:
                     continue
 
         if t >= end - 1:
             break
 
-    return combination, ho_events, obj_value
+    if recursion:
+        return [serv_bs], [t]
+
+    else:
+        return combination, ho_events, obj_value
 
 
 if __name__=="__main__":
-    scenario, channel, LOS, network, nodes, R = load_inputFile(args.inputFile)
- 
+
+    seed = str(np.random.randint(0, 60))
+    Lambda = "{0:.3f}".format(np.random.choice([0.001*i + 0.001 for i in range(10)]))
+    args.inputFile = 'instances/full-scenario/22/'+Lambda+'/'+seed
+    
+    args.timeslots = np.random.randint(0, 500)
+    args.begin = np.random.randint(0, 203000 - args.timeslots)
+    print('instances/full-scenario/22/'+Lambda+'/'+seed, args.begin, args.begin+args.timeslots)
+
+    if not args.initialize:
+        result, SNR, network, nodes = test_api(args.inputFile, args.begin, args.begin + args.timeslots, args.ttt)
+
+        if result['status']:
+            args.initialize = [result['last_bs'], result['assoc_time'], result['pre_objval']]
+            print(args.initialize)
+
+        else:
+            print('Infeasible')
+            exit()
+
     m_bs = len(network)
     n_ue = len(nodes)
  
-    combinations = gen_combninations(network, args.length)
-    SNR = snr_processing(scenario, network, nodes, channel, LOS)
+    #combinations = gen_combninations(network, args.length)
+    combinations = [[network[5], network[1]]]
+    #SNR = snr_processing(scenario, network, nodes, channel, LOS)
 
     obj_value = list() 
     pre_value = 0
     assoc_time = 0
+
+    print(result['assoc'])
+    print(result['obj'])
+
     for n, comb in enumerate(combinations):
-        '''
-        serv_bs = comb[0]
-        ho_events = list()
-        start = args.begin
-        end = start+args.timeslots
-        for targ_bs in comb[1:]:
-            for t in range(start, end):
-                if t > args.ttt:
-                    if check_handover(serv_bs, targ_bs, SNR, t, args.ttt, 3, 0):
-                        ho_events.append(t)                        
-                        start = t+1
-                        serv_bs = targ_bs
-                        break
-                    else:
-                        continue
-            if t >= end - 1:
-                break
-        ho_events.append(end)
-        if len(ho_events) < args.length:
-            comb = comb [:len(ho_events)]
-        '''
         if args.initialize:
             last_bs = list([network[args.initialize[0]]])
             comb = last_bs + list(comb)
@@ -241,22 +273,14 @@ if __name__=="__main__":
 
         serv_bs = comb[0]
         ho_events = list()
-        start = args.begin #- min(args.ttt, assoc_time)
-        #if start < 0:
-        #    start = 0
+        start = args.begin
 
         end = start+args.timeslots
 
         comb, ho_events, comb_objval = eval_comb(comb, ho_events, SNR, nodes, start, end, args.ttt, False)
 
-        '''
-        ho_events.append(end)
-        if len(ho_events) < args.length:
-            comb = comb [:len(ho_events)]
-        '''
 
         if ho_events:
-            #obj_value.append([comb, calc_objvalue(comb, ho_events, SNR, nodes, args.begin, args.begin+args.timeslots), ho_events])
             obj_value.append([comb, pre_value + comb_objval, ho_events])
 
         else:
@@ -266,7 +290,27 @@ if __name__=="__main__":
                     y_var += 1
             obj_value.append([serv_bs, pre_value + y_var + sum(SNR[serv_bs['index']][0][start:end]), [end]])
 
-        #print(n, obj_value[-1])
 
+    #print(obj_value)
     best = max(obj_value, key=lambda x: x[1])
     print(best)
+
+
+    diff = abs(result['obj'] - best[1])
+    print(diff)
+
+    result_dict = {
+        'instance': args.inputFile,
+        'begin': args.begin,
+        'timeslots': args.timeslots,
+        'opt_objvalue': result['obj'],
+        'opt_comb': result['assoc'],
+        'test_objvalue': best[1],
+        'test_comb': [best[0],best[2]],
+        'diff': diff
+    }
+
+    #filename = Lambda+'-'+seed+'-'+str(args.begin)+'-'+str(args.begin+args.timeslots)
+    filename = 'test-optimisation'+str(args.seed)
+    with open(filename, 'w') as jsonfile:
+        json.dump(result_dict, jsonfile, indent=4)
