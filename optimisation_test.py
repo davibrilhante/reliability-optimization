@@ -230,13 +230,14 @@ def eval_comb(combination : list, ho_events : list, SNR : list, nodes : list, st
 
 if __name__=="__main__":
 
-    seed = str(np.random.randint(0, 60))
-    Lambda = "{0:.3f}".format(np.random.choice([0.001*i + 0.001 for i in range(10)]))
-    args.inputFile = 'instances/full-scenario/22/'+Lambda+'/'+seed
-    
-    args.timeslots = np.random.randint(0, 500)
-    args.begin = np.random.randint(0, 203000 - args.timeslots)
-    print('instances/full-scenario/22/'+Lambda+'/'+seed, args.begin, args.begin+args.timeslots)
+    if not args.inputFile:
+        seed = str(np.random.randint(0, 60))
+        Lambda = "{0:.3f}".format(np.random.choice([0.001*i + 0.001 for i in range(10)]))
+        args.inputFile = 'instances/full-scenario/22/'+Lambda+'/'+seed
+        
+        args.timeslots = np.random.randint(0, 500)
+        args.begin = np.random.randint(0, 203000 - args.timeslots)
+        print('instances/full-scenario/22/'+Lambda+'/'+seed, args.begin, args.begin+args.timeslots)
 
     if not args.initialize:
         result, SNR, network, nodes = test_api(args.inputFile, args.begin, args.begin + args.timeslots, args.ttt)
@@ -244,24 +245,28 @@ if __name__=="__main__":
         if result['status']:
             args.initialize = [result['last_bs'], result['assoc_time'], result['pre_objval']]
             print(args.initialize)
+            print(result['assoc'])
+            print(result['obj'])
 
         else:
             print('Infeasible')
             exit()
+    else:
+        initialized = True
+        scenario, channel, LOS, network, nodes, R = load_inputFile(args.inputFile)
+         
+        SNR = snr_processing(scenario, network, nodes, channel, LOS)
 
     m_bs = len(network)
     n_ue = len(nodes)
  
-    #combinations = gen_combninations(network, args.length)
-    combinations = [[network[5], network[1]]]
+    combinations = gen_combninations(network, args.length)
     #SNR = snr_processing(scenario, network, nodes, channel, LOS)
 
     obj_value = list() 
     pre_value = 0
     assoc_time = 0
 
-    print(result['assoc'])
-    print(result['obj'])
 
     for n, comb in enumerate(combinations):
         if args.initialize:
@@ -291,24 +296,40 @@ if __name__=="__main__":
             obj_value.append([serv_bs, pre_value + y_var + sum(SNR[serv_bs['index']][0][start:end]), [end]])
 
 
-    #print(obj_value)
+    print(obj_value)
     best = max(obj_value, key=lambda x: x[1])
     print(best)
 
+    if initialized:
+        diff = abs(args.initialize[2] - best[1])
+        print(diff)
 
-    diff = abs(result['obj'] - best[1])
-    print(diff)
+        result_dict = {
+            'instance': args.inputFile,
+            'begin': args.begin,
+            'timeslots': args.timeslots,
+            'opt_objvalue': args.initialize[2],
+            'opt_comb': None,
+            'test_objvalue': best[1],
+            'test_comb': [best[0],best[2]],
+            'diff': diff
+        }
+     
 
-    result_dict = {
-        'instance': args.inputFile,
-        'begin': args.begin,
-        'timeslots': args.timeslots,
-        'opt_objvalue': result['obj'],
-        'opt_comb': result['assoc'],
-        'test_objvalue': best[1],
-        'test_comb': [best[0],best[2]],
-        'diff': diff
-    }
+    else:
+        diff = abs(result['obj'] - best[1])
+        print(diff)
+
+        result_dict = {
+            'instance': args.inputFile,
+            'begin': args.begin,
+            'timeslots': args.timeslots,
+            'opt_objvalue': result['obj'],
+            'opt_comb': result['assoc'],
+            'test_objvalue': best[1],
+            'test_comb': [best[0],best[2]],
+            'diff': diff
+        }
 
     #filename = Lambda+'-'+seed+'-'+str(args.begin)+'-'+str(args.begin+args.timeslots)
     filename = 'test-optimisation'+str(args.seed)
