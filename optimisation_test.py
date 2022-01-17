@@ -240,6 +240,7 @@ if __name__=="__main__":
         print('instances/full-scenario/22/'+Lambda+'/'+seed, args.begin, args.begin+args.timeslots)
 
     if not args.initialize:
+        initialized = False
         result, SNR, network, nodes = test_api(args.inputFile, args.begin, args.begin + args.timeslots, args.ttt)
 
         if result['status']:
