@@ -122,8 +122,6 @@ def check_handover(s_bs : dict, t_bs : dict, SNR : list, start : int, tau : int,
         handover = 0
         if start > tau:
             for k in range(start - tau, start):
-                if s_bs['index'] == 3 and t_bs['index'] == 5:
-                    print(k, SNR[s_bs['index']][0][k], SNR[t_bs['index']][0][k])
                 serving = todb(SNR[s_bs['index']][0][k])
                 target = todb(SNR[t_bs['index']][0][k])
 
@@ -199,7 +197,7 @@ def eval_comb(combination : list, SNR : list, nodes : list, start : int, end : i
                     events = [t] + events
 
                     if local_value > obj_value:
-                        print('New max')
+                        print('New max', obj_value, local_value)
                         final_seq = bs_seq
                         obj_value = local_value
                         ho_events = events
@@ -227,9 +225,9 @@ def eval_comb(combination : list, SNR : list, nodes : list, start : int, end : i
 
             # No further handover at all
             if not ho_flag:
-                print('No further handover opportunity')
-                final_seq = [serv_bs]
                 obj_value = sum(SNR[serv_bs['index']][0][start:end+1])
+                print('No further handover opportunity', obj_value)
+                final_seq = [serv_bs]
                 ho_events = []
 
         print(final_seq, ho_events, obj_value)
@@ -273,13 +271,13 @@ if __name__=="__main__":
     n_ue = len(nodes)
  
     combinations = gen_combninations(network, args.length)
-    combinations = [[network[12], network[10]]]
     #SNR = snr_processing(scenario, network, nodes, channel, LOS)
 
     obj_value = list() 
     pre_value = 0
     assoc_time = 0
     skip = None
+    ho_flag = False
 
 
     for n, comb in enumerate(combinations):
@@ -301,8 +299,10 @@ if __name__=="__main__":
             bs_seq, ho_events, comb_objval = eval_comb(comb, SNR, nodes, start, end, args.ttt, False)
 
             if ho_events:
+                print([i['index'] for i in bs_seq], comb_objval, pre_value, pre_value + comb_objval)
                 obj_value.append([bs_seq, pre_value + comb_objval, ho_events])
                 skip = None
+                ho_flag = True
 
             else:
                 skip = comb[1]['index']
@@ -315,6 +315,16 @@ if __name__=="__main__":
         else:
             continue
 
+    if ho_flag:
+        for comb in obj_value:
+            if type(comb[0]) == type({}):
+                try:
+                    obj_value.remove(comb)
+                except Exception as error:
+                    print(error)
+                    
+
+
 
 
     #print(obj_value)
@@ -323,33 +333,41 @@ if __name__=="__main__":
 
     if initialized:
         diff = abs(args.initialize[3] - best[1])
+        sign = np.sign(args.initialize[3] - best[1])
         print(diff)
 
         result_dict = {
             'instance': args.inputFile,
             'begin': args.begin,
+            'end': args.begin+args.timeslots,
             'timeslots': args.timeslots,
+            'intermed_objvalue': args.initialize[2],
             'opt_objvalue': args.initialize[3],
-            'opt_comb': None,
+            'opt_comb': [args.initialize[0], args.initialize[1]],
             'test_objvalue': best[1],
             'test_comb': [best[0],best[2]],
-            'diff': diff
+            'diff': diff,
+            'sign': sign
         }
      
 
     else:
         diff = abs(result['obj'] - best[1])
+        sign = np.sign(result['obj'] - best[1])
         print(diff)
 
         result_dict = {
             'instance': args.inputFile,
             'begin': args.begin,
+            'end': args.begin+args.timeslots,
             'timeslots': args.timeslots,
+            'intermed_objvalue': result['preobjval'],
             'opt_objvalue': result['obj'],
             'opt_comb': result['assoc'],
             'test_objvalue': best[1],
             'test_comb': [best[0],best[2]],
-            'diff': diff
+            'diff': diff,
+            'sign': sign
         }
 
     #filename = Lambda+'-'+seed+'-'+str(args.begin)+'-'+str(args.begin+args.timeslots)
