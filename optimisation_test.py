@@ -163,7 +163,7 @@ def calc_objvalue(combination : list, ho_event : list, SNR : list, nodes : list,
                 if t in nodes[n]['packets']:
                     objval += 1
 
-        start = interval + 1
+        start = interval
 
     return objval
 
@@ -189,7 +189,7 @@ def eval_comb(combination : list, SNR : list, nodes : list, start : int, end : i
                 events = []
                 local_value = 0
 
-                if check_handover(serv_bs, targ_bs, SNR, t, tau, 3, 0):
+                if check_handover(serv_bs, targ_bs, SNR, t, tau, 3, 0) and ((t - start) + args.initialize[1] >= tau):
                     bs_seq, events, local_value = eval_comb(combination[1:], SNR, nodes, t+1, end, tau, True)
 
                     bs_seq = [serv_bs] + bs_seq
@@ -210,7 +210,7 @@ def eval_comb(combination : list, SNR : list, nodes : list, start : int, end : i
                 events = []
                 local_value = 0
 
-                if check_handover(serv_bs, targ_bs, SNR, t, tau, 3, 0):
+                if check_handover(serv_bs, targ_bs, SNR, t, tau, 3, 0) and (t - start >= tau):
                     ho_flag = True
                     bs_seq, events, local_value = eval_comb(combination[1:], SNR, nodes, t+1, end, tau, True)
 
@@ -269,6 +269,9 @@ if __name__=="__main__":
 
     m_bs = len(network)
     n_ue = len(nodes)
+    
+    print(sum(SNR[network[6]['index']][0][args.begin:126679]) + sum(SNR[network[5]['index']][0][126679:args.begin+args.timeslots+1]))
+    print(sum(SNR[network[6]['index']][0][args.begin:126663]) + sum(SNR[network[7]['index']][0][126663:args.begin+args.timeslots+1]))
  
     combinations = gen_combninations(network, args.length)
     #SNR = snr_processing(scenario, network, nodes, channel, LOS)
@@ -361,7 +364,7 @@ if __name__=="__main__":
             'begin': args.begin,
             'end': args.begin+args.timeslots,
             'timeslots': args.timeslots,
-            'intermed_objvalue': result['preobjval'],
+            'intermed_objvalue': result['pre_objval'],
             'opt_objvalue': result['obj'],
             'opt_comb': result['assoc'],
             'test_objvalue': best[1],
