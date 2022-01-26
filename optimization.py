@@ -568,9 +568,6 @@ def statistics(x, y, m_bs, SNR, R, scenario, save=True,_print=False, outputFile=
 
     finaldict = {}
     if _print:
-        print(results)
-
-
         oldv = ''
         vardict = {}
         oldvalue = None
@@ -586,7 +583,6 @@ def statistics(x, y, m_bs, SNR, R, scenario, save=True,_print=False, outputFile=
 
                 if oldv != '':
                     finaldict[vardict['variable']] = vardict
-                    print(vardict)
 
                 oldv = varname[0]+varindex
                 vardict = {}
@@ -777,7 +773,7 @@ def test_api(inputFile, beginning = 0, simutime = 50000, ttt = 640):
 
 
 if __name__ == '__main__':
-    proc = subprocess.Popen(['./monitor.sh &'], shell=True)
+    #proc = subprocess.Popen(['./monitor.sh &'], shell=True)
 
     args = get_args()
 
@@ -823,4 +819,4 @@ if __name__ == '__main__':
     #print('Y: %g'% y.sum('*','*','*').getValue())
     print('Y: %g'% sum([i.x for i in y.values()]))
     print(comp_resources)
-    print(proc.stdout)
+    #print(proc.stdout)

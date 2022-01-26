@@ -281,7 +281,7 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
                                 candidates.append(q)
                         try:
                             aux[p,n,t] = model.addVar(vtype=GRB.INTEGER, ub=scenario['ttt'],
-                                    name='aux_{bs}_{ue}_{tempo}'.format(bs=p,ue=n,tempo=t))
+                                    name='aux[{bs},{ue},{tempo}]'.format(bs=p,ue=n,tempo=t))
 
                             extra = 0
                             valid = set()
