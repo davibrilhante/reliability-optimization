@@ -270,9 +270,6 @@ if __name__=="__main__":
     m_bs = len(network)
     n_ue = len(nodes)
     
-    print(sum(SNR[network[6]['index']][0][args.begin:126679]) + sum(SNR[network[5]['index']][0][126679:args.begin+args.timeslots+1]))
-    print(sum(SNR[network[6]['index']][0][args.begin:126663]) + sum(SNR[network[7]['index']][0][126663:args.begin+args.timeslots+1]))
- 
     combinations = gen_combninations(network, args.length)
     #SNR = snr_processing(scenario, network, nodes, channel, LOS)
 
