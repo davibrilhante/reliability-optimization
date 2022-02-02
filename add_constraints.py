@@ -256,18 +256,25 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
                     if beta[q][p][n][t] == 1:
                         betaq[p][n][t] = 1
 
-    model.addConstr(x[0,0,0] == 1, 'initial_constr')
 
     aux = {}
     for p in M:
         for n in range(n_ue):
+            if 0 in nodes[n][p, 'available']:
+                model.addConstr(x[p,n,0] >= 0, 'initial_constr[{ind[0]},0,0]'.format(ind=[p]))
+
             ho_range = {k for k in range(scenario['simTime'])}
             for t in range(1,scenario['simTime']):
                 if (t in nodes[n][p,'available']) and (t-1 in nodes[n][p,'available']):
                     if betap[p][n][t] == 1:
                         try:
+                            # If it is not going to receive a handover, 
+                            # then it should stay at the same state
                             if betaq[p][n][t] == 0:
                                 model.addConstr(x[p,n,t] - x[p,n,t-1] == 0, 'stay_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+
+                            # Otherwise, if it is a candidate to receive a handover
+                            # Then it may or not change the state
                             else:
                                 model.addConstr(x[p,n,t] - x[p,n,t-1] >= 0, 'stay_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
                         except Exception as error:
@@ -310,8 +317,20 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
 
                         try:
                             model.addGenConstrIndicator(
-                                    u[p,n,t], False, gb.quicksum(x[q,n,t] for q in candidates), 
+                                    u[p,n,t], False, gb.quicksum(x[q,n,t] for q in candidates + [p]), 
                                     GRB.EQUAL, 1, 'handover_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+
+                            '''
+                            model.addGenConstrIndicator(
+                                    u[p,n,t], False, x[p,n,t] - x[p,n,t-1], 
+                                    GRB.GREATER_EQUAL, 0, 'stay_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+
+                            for q in candidates:
+                                model.addGenConstrIndicator(
+                                        u[p,n,t], False, x[q,n,t] - x[q,n,t-1], 
+                                        GRB.GREATER_EQUAL, 0, 'target_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[q,n,t]))
+                            '''
+
                         except Exception as error:
                             logging.warning('E308: ', error)
 
@@ -319,6 +338,14 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
                             model.addGenConstrIndicator(
                                     u[p,n,t], True, x[p,n,t] - x[p,n,t-1], 
                                     GRB.EQUAL, 0, 'stay_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
+
+                            '''
+                            for q in candidates:
+                                model.addGenConstrIndicator(
+                                        u[p,n,t], True, x[q,n,t] - x[q,n,t-1], 
+                                        GRB.EQUAL, 0, 'target_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[q,n,t]))
+                            '''
+
                         except Exception as error:
                             logging.warning('E309: ', error)
 

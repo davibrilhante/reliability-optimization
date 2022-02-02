@@ -180,35 +180,6 @@ def calc_snr(base : dict, user : dict, channel : dict, los : bool, t=0) -> float
     return 10**((calc_recv(base, user, channel, los, t) - noise_power)/10)
 
 
-def handover_callback(model, where):
-    hit = 68
-    if where == GRB.Callback.MIPSOL:
-        vals = model.cbGetSolution(model._vars)
-
-        selected = gb.tuplelist((m, n, t) for m, n, t in model._vars.keys()
-                                if vals[m,n,t] > 0.5)
-        m_bs = len(vals)
-
-        handovers = handover_detection(selected)
-
-        for p, q, n, t1, t2 in handovers:
-            #if model._beta[p,q,n,t2] == 0 and model._beta[q,p,n,t2] == 0:
-            if t2 > t1+args.ttt:
-                try:
-                    '''
-                    model.cbLazy(x[p,n,t1]*x[p,n,t2] +
-                            beta[p][q][n][t2]*x[p,n,t1]*x[q,n,t2] +
-                            beta[q][p][n][t2]*x[q,n,t1]*x[p,n,t2] +
-                            x[q,n,t1]*x[q,n,t2] <= 1)
-                    '''
-                    model.cbLazy(sum(x[q,n,t] for t in range(t2,t2+hit))<=
-                            1 - sum(model._beta[p,q,t1,t2]*x[p,n,t1]*x[q,n,t2] for p in range(m_bs) if p != q)
-                    )
-                except Exception as error:
-                    logger.warning('Error adding lazy constraints to the model %i %i %i %i'%(p,q,t1,t2))
-                    logger.warning(error)
-
-
 def handover_detection(_vars):
     handovers = []
     for p,n1,t1 in _vars:
@@ -430,10 +401,10 @@ def add_variables(model, scenario, network, nodes, SNR, beta):
         for n, ue in enumerate(nodes):
             ue[m, 'available'] = set()
             for t in range(scenario['simTime']):
-                if SNR[m][n][t] >= ue['threshold']:
-                    x[m,n,t] = model.addVar(vtype=GRB.BINARY,
-                                name='x[{bs},{ue},{tempo}]'.format(bs=m,ue=n,tempo=t))
-                    ue[m, 'available'].add(t)
+                #if SNR[m][n][t] >= ue['threshold']:
+                x[m,n,t] = model.addVar(vtype=GRB.BINARY,
+                            name='x[{bs},{ue},{tempo}]'.format(bs=m,ue=n,tempo=t))
+                ue[m, 'available'].add(t)
 
 
     y = {}
@@ -784,6 +755,10 @@ if __name__ == '__main__':
     scenario['ttt'] = args.ttt
 
     SNR = snr_processing(scenario, network, nodes, channel, LOS)
+
+    print(sum(SNR[network[6]['index']][0][124944:126679])+sum(SNR[network[5]['index']][0][126679:args.simutime]))
+    print(sum(SNR[network[6]['index']][0][124944:126663])+sum(SNR[network[7]['index']][0][126663:args.simutime]))
+
     beta = beta_processing(SNR, m_bs, n_ue, simTime=scenario['simTime'], tau=scenario['ttt'])
     model = model_setting()
     x, y, u = add_variables(model, scenario, network, nodes, SNR, beta)
@@ -800,6 +775,19 @@ if __name__ == '__main__':
 
     model_optimize(model, x, y, scenario, network, nodes, SNR, beta, R, m_bs, n_ue)   
     statistics(x, y, m_bs, SNR, R, scenario, save=args.save, _print=args.Print, outputFile='instances/opt'+args.outputFile)
+    
+    interim_objval = 0
+    for t in range(126663):
+        for n in range(n_ue):
+            for m in range(m_bs):
+                if t in nodes[n][m,'available'] and x[m,n,t].x == 1:
+                    interim_objval += SNR[m][n][t]
+
+    print()
+    print(interim_objval + sum(SNR[network[6]['index']][0][126663:126679])+sum(i if R[m]*np.log2(1+i) >= nodes[0]['capacity'] else 0 for i in SNR[network[5]['index']][0][126679:args.simutime])) 
+    print(interim_objval + sum(i if R[m]*np.log2(1+i) >= nodes[0]['capacity'] else 0 for i in SNR[network[7]['index']][0][126663:args.simutime]))
+    print()
+
 
     if args.plot:
         plot_stats(model, x, y, SNR, m_bs)
