@@ -244,7 +244,7 @@ if __name__=="__main__":
         Lambda = "{0:.3f}".format(np.random.choice([0.001*i + 0.001 for i in range(10)]))
         args.inputFile = 'instances/full-scenario/22/'+Lambda+'/'+seed
         
-        args.timeslots = np.random.randint(0, 2000)
+        args.timeslots = np.random.randint(0, 3000)
         args.begin = np.random.randint(0, 203000 - args.timeslots)
         print('instances/full-scenario/22/'+Lambda+'/'+seed, args.begin, args.begin+args.timeslots)
 
