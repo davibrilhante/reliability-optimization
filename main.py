@@ -38,6 +38,7 @@ parser.add_argument('--ttt', type=int, default=640)
 parser.add_argument('--untoggleBlockage', action='store_true')
 parser.add_argument('--untoggleRayleigh', action='store_false')
 parser.add_argument('--untoggleShadowing', action='store_false')
+parser.add_argument('--untoggleInterference', action='store_false')
 args = parser.parse_args()
 
 
@@ -130,6 +131,8 @@ if __name__ == '__main__':
                     mobiles[i['uuid']].channel[j['uuid']].generateRayleighFading(doppler, scenario.simTime)
                     with open(j['uuid'], 'w') as filehandle:
                         json.dump(mobiles[i['uuid']].channel[j['uuid']].fadingSamples.tolist(), filehandle)
+
+        mobiles[i['uuid']].switchInterference = args.untoggleInterference
                 
 
         mobiles[i['uuid']].initializeServices()

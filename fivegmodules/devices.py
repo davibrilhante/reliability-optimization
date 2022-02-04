@@ -474,6 +474,7 @@ class MeasurementDevice(WirelessDevice):
 
         self.plotRSRP = PlotRSRP(self)
         self.plotSINR = PlotSINR(self)
+        self.switchInterference = True
 
 
     # At each time to measure, the UE updates the list of BS and check
@@ -669,16 +670,24 @@ class MeasurementDevice(WirelessDevice):
                             - self.channel[uuid].pathLossCalc(reference, exponent, 
                             distance, shadowingStdev=stdev, fadingSample = self.env.now))/10)
 
+            if self.switchInterference:
 
-            noisePlusInterference = 10**(self.channel[self.servingBS].noisePower/10) + interference
-            #print(self.env.now, 10**(self.listedRSRP[self.servingBS]/10), noisePlusInterference)
+                noisePlusInterference = 10**(self.channel[self.servingBS].noisePower/10) + interference
+                #print(self.env.now, 10**(self.listedRSRP[self.servingBS]/10), noisePlusInterference)
 
-            SINR = 10*log10((10**(self.listedRSRP[self.servingBS]/10))/noisePlusInterference)
-            #SINR = servingBSPower - noisePlusInterference
-            #print('bssinr', servingBSPower)
-            #print('bssinr', self.listedRSRP[self.servingBS],'\n n+i', noisePlusInterference)
-            #print(SINR)
-            return SINR
+                SINR = 10*log10((10**(self.listedRSRP[self.servingBS]/10))/noisePlusInterference)
+                #SINR = servingBSPower - noisePlusInterference
+                #print('bssinr', servingBSPower)
+                #print('bssinr', self.listedRSRP[self.servingBS],'\n n+i', noisePlusInterference)
+                #print(SINR)
+                return SINR
+
+            else:
+                noisePower = 10**(self.channel[self.servingBS].noisePower/10)
+                SNR = 10*log10((10**(self.listedRSRP[self.servingBS]/10))/noisePower)
+
+                return SNR
+
 
     def updateBSList(self):
         for uuid, bs in self.scenarioBasestations.items():
