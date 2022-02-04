@@ -133,6 +133,7 @@ if __name__ == '__main__':
                         json.dump(mobiles[i['uuid']].channel[j['uuid']].fadingSamples.tolist(), filehandle)
 
         mobiles[i['uuid']].switchInterference = args.untoggleInterference
+        mobiles[i['uuid']].ignoreFirstAssociation = True
                 
 
         mobiles[i['uuid']].initializeServices()

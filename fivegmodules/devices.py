@@ -425,9 +425,14 @@ class HandoverAssessment(SignalAssessmentPolicy):
                 device.kpi.reassociation += 1
                 device.reassociationFlag = True
 
-            device.env.process(device.cellAttachmentProcedure())
-            #else:
-            #    device.env.process(device.firstAssociation(maxRSRP))
+                device.env.process(device.cellAttachmentProcedure())
+
+            elif device.ignoreFirstAssociation:
+                #device.env.process(device.firstAssociation(maxRSRP))
+                device.sync = True
+                device.servingBS = maxRSRP
+                device.kpi.association.append([list(device.scenarioBasestations.keys()).index(device.servingBS),
+                                                device.env.now])
  
  
         elif device.servingBS != None and device.sync:
@@ -475,6 +480,7 @@ class MeasurementDevice(WirelessDevice):
         self.plotRSRP = PlotRSRP(self)
         self.plotSINR = PlotSINR(self)
         self.switchInterference = True
+        self.ignoreFirstAssociation = False
 
 
     # At each time to measure, the UE updates the list of BS and check
@@ -758,7 +764,7 @@ class MobileUser(MeasurementDevice):
 
     def initializeServices(self, **params):
         #self.env.process(self.firstAssociation())
-        self.env.process(self.cellAttachmentProcedure())
+        #self.env.process(self.cellAttachmentProcedure())
         self.env.process(self.measurementEvent())
         self.env.process(self.sendingPackets())
         self.env.process(self.connectivityGap())
