@@ -62,14 +62,17 @@ def todb(x : float) -> float:
 def tolin(x : float) -> float:
     return 10**(x/10)
 
-def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
+def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, packets, delayTolerance, RSRP):
     #create dict
     kpi = {}
+
+    nPackets = len(packets)
 
     kpi['deliveryRate'] = 0
     kpi['partDelay'] = 0
     linearSnr = []
     snr = []
+    rsrp = []
     cap = []
     #get average snr
     for m in range(m_bs):
@@ -77,9 +80,13 @@ def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
             try:
                 if x[m,n_ue,t].getAttr('X') == 1:
                     #val = x[m][n_ue][t]*SNR[m][n_ue][t]
-                    val = x[m,n_ue,t].getAttr('X')*SNR[m][n_ue][t]
+                    #val = x[m,n_ue,t].getAttr('X')*SNR[m][n_ue][t]
+                    val = SNR[m][n_ue][t]
                     linearSnr.append(val)
                     snr.append(todb(val))
+                    if RSRP is not None:
+                        rsrp.append(RSRP[m][n_ue][t])
+
                     cap.append(BW[m]*np.log2(1+val))
             except KeyError:
                 pass
@@ -95,6 +102,8 @@ def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
     kpi['deliveryRate']/=nPackets
     kpi['partDelay']/=nPackets
     kpi['snr'] = np.mean(snr)
+    if rsrp:
+        kpi['rsrp'] = np.mean(rsrp)
     kpi['linearSNR'] = np.mean(linearSnr)
     kpi['capacity'] = np.mean(cap)
     
@@ -123,8 +132,32 @@ def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
     rate = num/len(associated[0])
 
     kpi['handover'] = len(associated[0]) - 1
-    kpi['handoverRate'] = kpi['handover']/simTime
+    kpi['handoverRate'] = kpi['handover']/(simTime*1e-3)
     kpi['pingpong'] = rate 
+
+    # Gaps or time out of sync!
+    T311 = 1000
+    kpi['gap'] = 0
+    for t in range(simTime):
+        for m in range(m_bs):
+            if x[m,n_ue,t].getAttr('X') == 1 and SNR[m][n_ue][t] <= tolin(15) and t >= T311:
+                if outofsync(SNR[m][n_ue][t-T311:t]):
+                    kpi['gap'] += 1
+
+            
+
+    #Average delay
+    delay = []
+    for p in packets:
+        for m in range(m_bs):
+            for k in range(delayTolerance):
+                if y[m, n_ue,p+k].getAttr('X') == 1:
+                    delay.append(k)
+                    break
+
+    #print(np.mean(delay))
+    kpi['delay'] = np.mean(delay)
+
     kpi['association'] = []
     for i in range(kpi['handover']+1):
         if i != (kpi['handover']):
@@ -132,24 +165,36 @@ def getKpi(x, y, m_bs, n_ue, simTime, SNR, BW, nPackets):
         else:
             kpi['association'].append([associated[0][i], associated[1][i], simTime, associated[2][i]])
 
-    '''
-    #Average delay
-    delay = []
-    for m in range(m_bs):
-        #for k in ue['packets']:
-        for p in range(ue['nPackets']):
-            k = ue['packets'][p]
-            l = ue['packets'][p+1]
-            #print(k)
-            for t in range(k, l):
-                if t < scenario['simTime'] and x[m][n][t] == 1:
-                    delay.append(t - k)
-                    break
-    #print(np.mean(delay))
-    kpi['delay'] = np.mean(delay)
-    '''
-
     return kpi
+
+
+def outofsync(snrslice, qout=-7.2, qin=-4.8, N310=1, N311=1, T310=1000):
+    # Checks Synchronization with base station according 3gpp protocol
+    outcounter = 0
+    incounter = 0
+    synctimer = 0
+
+    for sample in snrslice:
+        if outcounter >= N310:
+            synctimer += 1
+
+        if incounter == N311:
+            synctimer = 0
+
+        if sample <= tolin(qout):
+            outcounter += 1
+            incounter = 0
+
+        if sample >= tolin(qin):
+            incounter += 1
+            outcounter = 0
+    
+    if synctimer >= T310:
+        return True
+
+    else:
+        return False
+    
 
 
 def calc_recv(base : dict, user : dict, channel : dict, los : bool, t=0) -> float:
@@ -177,7 +222,12 @@ def calc_recv(base : dict, user : dict, channel : dict, los : bool, t=0) -> floa
 def calc_snr(base : dict, user : dict, channel : dict, los : bool, t=0) -> float:
     noise_power = channel['noisePower']
 
-    return 10**((calc_recv(base, user, channel, los, t) - noise_power)/10)
+    return tolin(calc_recv(base, user, channel, los, t) - noise_power)
+
+def calc_snr2(rsrp : float, channel : dict) -> float:
+    noise_power = channel['noisePower']
+
+    return tolin(rsrp - noise_power)
 
 
 def handover_detection(_vars):
@@ -270,6 +320,7 @@ def load_inputFile(inputFile, beginning = 0, span = 5000):
 
 def snr_processing(scenario, network, nodes, channel, LOS, beginning=0):
     SNR = []
+    RSRP = []
 
     print('Preprocessing...')
 
@@ -279,17 +330,19 @@ def snr_processing(scenario, network, nodes, channel, LOS, beginning=0):
     print('SNR Evaluation...')
     for m, bs in enumerate(network):
         SNR.append([])
+        RSRP.append([])
         for n,ue in enumerate(nodes):
             SNR[m].append([])
+            RSRP[m].append([])
             #Adding the time dependency
             for t in range(scenario['simTime']):
                 if LOS[m][n][beginning+t] == 1:
                     los = True
                 else:
                     los = False
-                SNR[m][n].append(calc_snr(bs,ue,channel,los,t))
-                #if gamma[m][n][t] == float('inf') or gamma[m][n][t] == float('nan'):
-                #    gamma[m][n][t] = 1.0
+                rsrp = calc_recv(bs, ue, channel, los, t)
+                RSRP[m][n].append(rsrp)
+                SNR[m][n].append(calc_snr2(rsrp, channel))
 
     comp_resources['snrprocess'][0] = time.time() - start
     heap_stat = heap.heap()
@@ -298,7 +351,7 @@ def snr_processing(scenario, network, nodes, channel, LOS, beginning=0):
     logger.info('Function processing time : %d'%comp_resources['snrprocess'][0])
     logger.info('Memory stat: %d'%comp_resources['snrprocess'][1])
 
-    return SNR
+    return SNR, RSRP
 
 def beta_processing(SNR, m_bs, n_ue, simTime, offset=3,hysteresis=0, tau=640):
     # Creating Beta array (handover flag)
@@ -526,11 +579,12 @@ def model_optimize(model, x, y, scenario, network, nodes, SNR, beta, R, m_bs, n_
 
 
 ##################### Collecting network results ##############################
-def statistics(x, y, m_bs, SNR, R, scenario, save=True,_print=False, outputFile=None):
+def statistics(x, y, m_bs, SNR, R, scenario, save=True,_print=False, outputFile=None, RSRP=None):
     start = time.time()
     kpi = {}
+
     try:
-        kpi = getKpi(x, y, m_bs, 0, scenario['simTime'], SNR, R, nodes[0]['nPackets'])
+        kpi = getKpi(x, y, m_bs, 0, scenario['simTime'], SNR, R, nodes[0]['packets'], nodes[0]['delay'], RSRP)
     except Exception as error:
         logging.debug(error)
 
@@ -754,10 +808,8 @@ if __name__ == '__main__':
     n_ue = len(nodes)
     scenario['ttt'] = args.ttt
 
-    SNR = snr_processing(scenario, network, nodes, channel, LOS)
+    SNR, RSRP = snr_processing(scenario, network, nodes, channel, LOS)
 
-    print(sum(SNR[network[6]['index']][0][124944:126679])+sum(SNR[network[5]['index']][0][126679:args.simutime]))
-    print(sum(SNR[network[6]['index']][0][124944:126663])+sum(SNR[network[7]['index']][0][126663:args.simutime]))
 
     beta = beta_processing(SNR, m_bs, n_ue, simTime=scenario['simTime'], tau=scenario['ttt'])
     model = model_setting()
@@ -774,7 +826,7 @@ if __name__ == '__main__':
     comp_resources['addconsts'][1] = heap_stat.size/(1024*1024)
 
     model_optimize(model, x, y, scenario, network, nodes, SNR, beta, R, m_bs, n_ue)   
-    statistics(x, y, m_bs, SNR, R, scenario, save=args.save, _print=args.Print, outputFile='instances/opt'+args.outputFile)
+    statistics(x, y, m_bs, SNR, R, scenario, save=args.save, _print=args.Print, outputFile='instances/opt'+args.outputFile, RSRP=RSRP)
     
     interim_objval = 0
     for t in range(126663):
@@ -782,11 +834,6 @@ if __name__ == '__main__':
             for m in range(m_bs):
                 if t in nodes[n][m,'available'] and x[m,n,t].x == 1:
                     interim_objval += SNR[m][n][t]
-
-    print()
-    print(interim_objval + sum(SNR[network[6]['index']][0][126663:126679])+sum(i if R[m]*np.log2(1+i) >= nodes[0]['capacity'] else 0 for i in SNR[network[5]['index']][0][126679:args.simutime])) 
-    print(interim_objval + sum(i if R[m]*np.log2(1+i) >= nodes[0]['capacity'] else 0 for i in SNR[network[7]['index']][0][126663:args.simutime]))
-    print()
 
 
     if args.plot:
