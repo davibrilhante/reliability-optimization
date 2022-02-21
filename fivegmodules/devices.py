@@ -31,6 +31,7 @@ class BaseStation(WirelessDevice):
         self.resourceBlocks = bsDict['resourceBlocks']
         self.slotsPerSubframe = bsDict['subcarrierSpacing']/(15*1e3)
         self.bandwidth = 12*bsDict['resourceBlocks']*bsDict['subcarrierSpacing']
+        self.MCSthreshold = 15.5595597 #dB
 
         self.associatedUsers = []
         self.inRangeUsers = []
@@ -188,7 +189,7 @@ class BaseStation(WirelessDevice):
         '''
 
         #if not error: #
-        if transmitter.servingBSSINR() > self.sensibility:
+        if transmitter.servingBSSINR() > self.MCSthreshold: #self.sensibility:
             #print('Packet Received', packet.packetId)
             transmitter.kpi.deliveryRate += 1
 
@@ -204,6 +205,10 @@ class BaseStation(WirelessDevice):
 
             if delay < transmitter.delay:
                 transmitter.kpi.partDelay += 1
+            return True
+
+        else:
+            return False
 
         '''
         else:
@@ -676,22 +681,33 @@ class MeasurementDevice(WirelessDevice):
                             - self.channel[uuid].pathLossCalc(reference, exponent, 
                             distance, shadowingStdev=stdev, fadingSample = self.env.now))/10)
 
-            if self.switchInterference:
 
+            # Toggles the neighbour BS interference
+            if self.switchInterference:
+                
+                # Noise plus Interference converted to linear
                 noisePlusInterference = 10**(self.channel[self.servingBS].noisePower/10) + interference
+
                 #print(self.env.now, 10**(self.listedRSRP[self.servingBS]/10), noisePlusInterference)
 
+                # SINR in dB
                 SINR = 10*log10((10**(self.listedRSRP[self.servingBS]/10))/noisePlusInterference)
+
                 #SINR = servingBSPower - noisePlusInterference
                 #print('bssinr', servingBSPower)
                 #print('bssinr', self.listedRSRP[self.servingBS],'\n n+i', noisePlusInterference)
                 #print(SINR)
+
                 return SINR
 
             else:
+                # Noise plus Interference converted to linear
                 noisePower = 10**(self.channel[self.servingBS].noisePower/10)
+
+                # SNR in dB
                 SNR = 10*log10((10**(self.listedRSRP[self.servingBS]/10))/noisePower)
 
+                #print(SNR)
                 return SNR
 
 
@@ -752,7 +768,7 @@ class MeasurementDevice(WirelessDevice):
 
 
 class MobileUser(MeasurementDevice):
-    def __init__ (self, scenario, inDict, Vx=0, Vy=0):
+    def __init__  (self, scenario, inDict, Vx=0, Vy=0):
         super(MobileUser, self).__init__(scenario, inDict)
         self.mobilityModel = None
         self.packetArrivals = None
@@ -761,6 +777,8 @@ class MobileUser(MeasurementDevice):
 
         self.Vx = Vx
         self.Vy = Vy
+
+        self.max_pkt_retry = 10
 
     def initializeServices(self, **params):
         #self.env.process(self.firstAssociation())
@@ -789,41 +807,60 @@ class MobileUser(MeasurementDevice):
     # This method schedules the packets transmission
     def sendingPackets(self):
         if self.packetArrivals:
-            self.kpi.nPackets = len(self.packetArrivals)
+            nPackets = len(self.packetArrivals)
+            self.kpi.nPackets = nPackets 
 
         for pktId, t in enumerate(self.packetArrivals):
-            packetSent = False
+            retries = 0
+            packet_sent = False
             yield self.env.timeout(t - self.env.now)
 
             # Generating the packet to be transmitted
             packetLen = 24 * 960 * 720 #* normal(loc=0, scale=1024) 
 
+            if pktId < nPackets - 1:
+                pkt_time_limit = self.packetArrivals[pktId+1]
+            else:
+                pkt_time_limit = self.env.simTime - 1
 
-            try:
-                packet = DataPacket(self, self.scenarioBasestations[self.servingBS], 
-                                pktId, self.env.now, packetLen)
+            while retries <= self.max_pkt_retry and t < pkt_time_limit:
+                try:
+                    packet = DataPacket(self, self.scenarioBasestations[self.servingBS], 
+                                    pktId, self.env.now, packetLen)
 
-                if (self.scenarioBasestations[self.servingBS].onSSB or 
-                    self.scenarioBasestations[self.servingBS].onRach):
+                    if (self.scenarioBasestations[self.servingBS].onSSB or 
+                        self.scenarioBasestations[self.servingBS].onRach):
 
-                    if (self.scenarioBasestations[self.servingBS].nextSSB <
-                        self.scenarioBasestations[self.servingBS].nextRach):
-                        yield self.env.timeout(self.scenarioBasestations[self.servingBS].nextSSB
-                                                - (self.networkParameters.SSBurstPeriod
-                                                - self.networkParameters.SSBurstDuration)
-                                                - self.env.now)
+                        if (self.scenarioBasestations[self.servingBS].nextSSB <
+                            self.scenarioBasestations[self.servingBS].nextRach):
+                            yield self.env.timeout(self.scenarioBasestations[self.servingBS].nextSSB
+                                                    - (self.networkParameters.SSBurstPeriod
+                                                    - self.networkParameters.SSBurstDuration)
+                                                    - self.env.now)
 
-                    elif (self.scenarioBasestations[self.servingBS].nextSSB >
-                        self.scenarioBasestations[self.servingBS].nextRach):
-                        yield self.env.timeout(self.scenarioBasestations[self.servingBS].nextRach
-                                                - (self.networkParameters.SSBurstPeriod
-                                                - self.networkParameters.SSBurstDuration)
-                                                - self.env.now)
+                        elif (self.scenarioBasestations[self.servingBS].nextSSB >
+                            self.scenarioBasestations[self.servingBS].nextRach):
+                            yield self.env.timeout(self.scenarioBasestations[self.servingBS].nextRach
+                                                    - (self.networkParameters.SSBurstPeriod
+                                                    - self.networkParameters.SSBurstDuration)
+                                                    - self.env.now)
 
-                self.scenarioBasestations[self.servingBS].receivePacket(self, packet)
+                    packet_sent = self.scenarioBasestations[self.servingBS].receivePacket(self, packet)
 
-            except KeyError:
-                continue
+                except KeyError:
+                    continue
+
+                if packet_sent:
+                    break
+
+                else:
+                    retries += 1
+                    yield self.env.timeout(1)
+
+            if not packet_sent:
+                self.kpi.delay.append(self.env.now - t)
+
+
 
 
 class PredictionBaseStation(BaseStation):
