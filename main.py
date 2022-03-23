@@ -39,6 +39,8 @@ parser.add_argument('--untoggleBlockage', action='store_true')
 parser.add_argument('--untoggleRayleigh', action='store_false')
 parser.add_argument('--untoggleShadowing', action='store_false')
 parser.add_argument('--untoggleInterference', action='store_false')
+parser.add_argument('--uedelay', type=int)
+parser.add_argument('--uecapacity', type=float)
 args = parser.parse_args()
 
 
@@ -74,6 +76,7 @@ if __name__ == '__main__':
 
     if args.untoggleBlockage:
         LOS = np.ones((len(network), len(nodes), data['scenario']['simTime']), dtype = np.int8)
+
     else:
         LOS = data['blockage']
 
@@ -115,6 +118,16 @@ if __name__ == '__main__':
         mobiles[i['uuid']].mobilityModel = StraightRoute()
         mobiles[i['uuid']].channel = {}
 
+        if args.uedelay:
+            mobiles[i['uuid']].delay = args.uedelay
+        else:
+            mobiles[i['uuid']].delay = i['delay']
+
+        if args.uecapacity:
+            mobiles[i['uuid']].capacity = args.uecapacity
+        else:
+            mobiles[i['uuid']].capacity = i['capacity']
+
         for j in network:                
             mobiles[i['uuid']].channel[j['uuid']] = AWGNChannel()
             mobiles[i['uuid']].channel[j['uuid']].noisePower = data['channel']['noisePower']
@@ -129,6 +142,7 @@ if __name__ == '__main__':
                 except FileNotFoundError:
                     doppler = np.hypot(mobiles[i['uuid']].Vx, mobiles[i['uuid']].Vy)/scenario.wavelength
                     mobiles[i['uuid']].channel[j['uuid']].generateRayleighFading(doppler, scenario.simTime)
+
                     with open(j['uuid'], 'w') as filehandle:
                         json.dump(mobiles[i['uuid']].channel[j['uuid']].fadingSamples.tolist(), filehandle)
 
@@ -141,6 +155,7 @@ if __name__ == '__main__':
         mobiles[i['uuid']].packetArrivals = i['packets']
         mobiles[i['uuid']].antenna = antenna
         mobiles[i['uuid']].handover = A3Handover()
+
         mobiles[i['uuid']].addLosInfo(LOS, n)
 
     scenario.addUserEquipments(mobiles)

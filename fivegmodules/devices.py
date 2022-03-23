@@ -189,7 +189,7 @@ class BaseStation(WirelessDevice):
         '''
 
         #if not error: #
-        if transmitter.servingBSSINR() > self.MCSthreshold: #self.sensibility:
+        if transmitter.servingBSSINR() > transmitter.snrThreshold: #self.MCSthreshold: #self.sensibility:
             #print('Packet Received', packet.packetId)
             transmitter.kpi.deliveryRate += 1
 
@@ -641,12 +641,13 @@ class MeasurementDevice(WirelessDevice):
 
                 distance = self.calcDist(bs) 
 
+                #LOS condition
                 if self.lineofsight[uuid][self.env.now] == 1:
                     reference = 61.4
                     exponent = 2.0
                     stdev = 5.8
 
-                #LOS condition
+                #NLOS condition
                 else:
                     reference = 72.0
                     exponent = 2.92
@@ -766,6 +767,11 @@ class MeasurementDevice(WirelessDevice):
         #self.kpi.averageSinr.append(self.servingBSSINR())
 
 
+class PacketGenerator:
+    def __init__(self):
+        pass
+    def generate(self):
+        pass
 
 class MobileUser(MeasurementDevice):
     def __init__  (self, scenario, inDict, Vx=0, Vy=0):
@@ -779,6 +785,11 @@ class MobileUser(MeasurementDevice):
         self.Vy = Vy
 
         self.max_pkt_retry = 10
+        self.packet_generator = None
+
+    def capacity2snr(self):
+        return 10*log10(2**(
+            self.capacity/self.scenarioBasestations[self.servingBS].bandwidth)-1)
 
     def initializeServices(self, **params):
         #self.env.process(self.firstAssociation())
@@ -798,6 +809,7 @@ class MobileUser(MeasurementDevice):
         if issubclass(self.mobilityModel.__class__, MobilityModel):
             self.env.process(self.mobilityModel.move(self))
 
+
     def connectivityGap(self):
         while True:
             if not self.sync:
@@ -806,6 +818,9 @@ class MobileUser(MeasurementDevice):
 
     # This method schedules the packets transmission
     def sendingPackets(self):
+        snr_capacity = self.capacity2snr()
+        self.snrThreshold = max(snr_capacity, self.snrThreshold)
+
         if self.packetArrivals:
             nPackets = len(self.packetArrivals)
             self.kpi.nPackets = nPackets 
@@ -851,6 +866,8 @@ class MobileUser(MeasurementDevice):
                     continue
 
                 if packet_sent:
+                    if self.env.now - t > 0:
+                        self.kpi.delay.append(self.env.now - t)
                     break
 
                 else:

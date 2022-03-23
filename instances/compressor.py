@@ -15,14 +15,21 @@ args = parser.parse_args()
 '''
 
 def compressor(data : dict) -> dict:
+    # Outputs the beginnings and ends of each LOS occasion
+
     for bs, bsblock in enumerate(data['blockage']):
         for ue, block in enumerate(bsblock):
             temp = []
             for t, los in enumerate(block):
+                #Beginning with a LOS situation
                 if (t == 0 and los == 1):
                     temp.append(0)
+
+                #Out of a NLOS situation at t-1 to LOS situation at t
                 elif (los == 1 and block[t-1] == 0):
                     temp.append(t)
+
+                #Out of a LOS situation at t-1 to NLOS situation at t
                 elif (los == 0 and block[t-1] == 1 and t > 0):
                     temp.append(t-1)
        
