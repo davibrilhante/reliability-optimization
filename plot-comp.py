@@ -8,6 +8,7 @@ from json import load
 from matplotlib import pyplot as plt
 import matplotlib.ticker as mtick
 from scipy.stats import norm
+from matplotlib import use
 
 
 metric_dict = {
@@ -169,6 +170,10 @@ def calc_gap(data, simtime = 203647, hit = 68):
 
 
 if __name__ == '__main__':
+    plt.rc('text', usetex=True)
+    plt.rc('font', family='serif', size=13)
+    use('PS')
+
     plot_opt = {}
     plot_base = {}
 
@@ -259,9 +264,13 @@ if __name__ == '__main__':
 
                 
 
-            plt.tight_layout()
+            #plt.tight_layout()
             plt.legend()
             plt.grid()
-            plt.savefig('comparison-opt-base-'+metric+'.eps')
+            plt.savefig('comparison-opt-base-'+metric+'.eps',
+                        dpi=300,
+                        bbox_inches="tight",
+                        transparent=True,
+                        format="pdf")
             plt.show()
                     

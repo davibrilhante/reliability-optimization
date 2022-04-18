@@ -32,6 +32,8 @@ def get_args():
     parser.add_argument('--ttt', type=int, default=640)
     parser.add_argument('-b','--beginning', type=int, default=0)
     parser.add_argument('-T','--simutime', type=int, default=5000)
+    parser.add_argument('--uedelay', type=int)
+    parser.add_argument('--uecapacity', type=float)
 
 
     args = parser.parse_args()
@@ -293,7 +295,14 @@ def load_inputFile(inputFile, beginning = 0, span = 5000):
         ue['nPackets'] = len(temp)
 
 
-        ue['capacity'] = 750e6 #Bits per second
+        if args.uecapacity:
+            ue['capacity'] = args.uecapacity #Bits per second
+        else:
+            ue['capacity'] = 750e6
+
+        if args.uedelay:
+            ue['delay'] = args.uedelay
+
         ue['threshold'] = tolin(15) #10**(ue['threshold']/10)
 
         ue['position']['x'] += (ue['speed']['x']/3.6)*(beginning*1e-3)

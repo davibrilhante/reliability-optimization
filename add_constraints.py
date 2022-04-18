@@ -3,8 +3,8 @@
                       
                       
 import numpy as np    
-import gurobipy as gb 
-from gurobipy import GRB
+#import gurobipy as gb 
+#from gurobipy import GRB
 import logging
 
 def gen_constraint_1(x, m_bs, nodes, resources, SNR,simTime, gen_dict):
