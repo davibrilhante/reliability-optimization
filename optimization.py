@@ -52,7 +52,7 @@ logging.basicConfig(filename='myfirstlog.log',
                     format='%(asctime)s : %(funcName)s : %(message)s')
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.WARNING)
 file_handler = logging.FileHandler('myfirstlog.log')
 formatter = logging.Formatter('%(asctime)s : %(funcName)s : %(message)s')
 file_handler.setFormatter(formatter)

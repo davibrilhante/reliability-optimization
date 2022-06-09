@@ -3,8 +3,8 @@
                       
                       
 import numpy as np    
-#import gurobipy as gb 
-#from gurobipy import GRB
+import gurobipy as gb 
+from gurobipy import GRB
 import logging
 
 def gen_constraint_1(x, m_bs, nodes, resources, SNR,simTime, gen_dict):
@@ -313,7 +313,7 @@ def add_all_constraints(model, Vars, nodes, network, SNR, beta, R, scenario, int
                             model.addGenConstrMin(u[p,n,t],[1, aux[p,n,t]], name='u_constr[{ind[0]},{ind[1]},{ind[2]}]'.format(ind=[p,n,t]))
 
                         except Exception as error:
-                            logging.warnning('E307: ', error)
+                            logging.warning('E307: ', error)
 
                         try:
                             model.addGenConstrIndicator(
