@@ -154,12 +154,56 @@ def calc_bssnr(instance, bs, init, end):
 
     return np.mean(dist_list)
 
+def assoc_to_list(assoc):
+
+    if len(assoc) >=3:
+        assoc = [i[:3] for i in assoc]
+
+    if assoc[0][1] != 0:
+        assoc_list = [assoc[0][0] for i in range(assoc[1][1])]
+    else:
+        assoc_list = [None for i in range(assoc[0][1])]
+
+    prev_end = assoc[0][1]
+
+    for bs, init, end in assoc[1:]:
+        for t in range(prev_end,end):
+            assoc_list.append(bs)
+        prev_end = end
+
+
+    return assoc_list
+
+
 if __name__ == '__main__':
     plt.rc('text', usetex=True)                                                 
     plt.rc('font', family='serif', size=13)
-    #use('PS')
+    use('PS')
 
-    line_plot = False #True
+    instance_file = 'instances/full-scenario/22/0.001/0'
+
+    network = []
+    nodes = []
+
+    try:
+        with open(instance_file) as json_file:
+            data = load(json_file)
+    except Exception as e:
+        print(e)
+        print(10)
+        exit()
+
+    decompressor(data)
+
+    scenario = data['scenario']
+    channel = data['channel']
+    LOS = data['blockage']
+    for p in data['baseStation']:
+        network.append(p)
+    for p in data['userEquipment']:
+        nodes.append(p)
+
+    line_plot = True
     
     vel_ttt =[(22,1280,203647),
                 (43,640,101823),
@@ -207,7 +251,7 @@ if __name__ == '__main__':
                     cap=capacity,
                     Del=delay)).load()
 
-                base[vel,ttt], base_metrics = load_result('instances/no-interference/bas/{tau}/{vel}/{Lambda}/{cap}/{Del}/'.format(
+                base[vel,ttt], base_metrics = load_result('instances/no-interference/base/{tau}/{vel}/{Lambda}/{cap}/{Del}/'.format(
                     tau=ttt,
                     vel=vel,
                     Lambda=block,
@@ -215,11 +259,14 @@ if __name__ == '__main__':
                     Del=delay)).load()
 
                 for instance in base[vel,ttt].keys():
-                    instance_file = 'instances/full-scenario/{vel}/{block}/{inst}'.format(vel=vel, block=block, inst=instance)
+                    #instance_file = 'instances/full-scenario/{vel}/{block}/{inst}'.format(vel=vel, block=block, inst=instance)
 
+                    #opt_assoc = assoc_to_list(opt[vel,ttt][instance]['association'])
+                    #base_assoc = assoc_to_list(base[vel,ttt][instance]['association'])
                     opt_assoc = opt[vel,ttt][instance]['association']
                     base_assoc = base[vel,ttt][instance]['association']
 
+                    '''
                     network = []
                     nodes = []
 
@@ -270,34 +317,75 @@ if __name__ == '__main__':
                         snr_list.append(snr_opt - snr_base)
                     metrics['snr_diff'][vel,ttt][block].append(np.mean(snr_list))
 
+                    '''
 
 
 
-                    maxlen = min(len(opt_assoc),len(base_assoc))
+                    minlen = min(len(opt_assoc),len(base_assoc))
+                    maxlen = max(len(opt_assoc),len(base_assoc))
                     equals = 0
 
                     #metrics['opt_uedistbs'][vel,ttt][block].append(calc_bsdist(opt[vel,ttt][instance],simtime, vel, network))
                     #metrics['base_uedistbs'][vel,ttt][block].append(calc_bsdist(base[vel,ttt][instance],simtime, vel, network))
 
                     
-                    for x,y in zip(opt_assoc[:maxlen],base_assoc[:maxlen]):
-                        bs_dist = np.hypot(network[x[0]]['position']['x'] - network[y[0]]['position']['x'], 
-                                network[x[0]]['position']['y'] - network[y[0]]['position']['y'])
+                    #for x,y in zip(opt_assoc[:maxlen],base_assoc[:maxlen]):
+                    for x in opt_assoc:
+                        for y in base_assoc:
+                            factor  = 0
+                            bs_dist = np.hypot(network[x[0]]['position']['x'] - network[y[0]]['position']['x'], 
+                                    network[x[0]]['position']['y'] - network[y[0]]['position']['y'])
 
+                            if x[1] < y[1]:
+                                if x[2] < y[1]:
+                                    #pass
+                                    continue
+
+                                elif x[2] >= y[1] and x[2] <= y[2]:
+                                    factor = x[2] - y[1]
+                                    print(x[0],y[0],x[1],'<',y[1],x[2],'<=',y[2])
+
+                                elif x[2] > y[2]:
+                                    factor = y[2] - y[1]
+                                    print(x[0],y[0],x[1],'<',y[1],x[2],'>',y[2])
+
+                            elif x[1] > y[1]:
+                                if x[1] > y[2]:
+                                    #pass
+                                    continue
+
+                                elif x[1] < y[2] :
+                                    if x[2] <= y[2]:
+                                        factor = x[2] - x[1]
+                                        print(x[0],y[0],x[1],'>',y[1],x[2],'<=',y[2])
+
+                                    elif x[2] > y[2]:
+                                        factor = y[2] - x[1]
+                                        print(x[0],y[0],x[1],'>',y[1],x[2],'>',y[2])
+
+                            if x[0]==y[0]:
+                                equals += factor
+
+                            else:
+                                equals += 0#factor*(1 - (bs_dist/1350))
+                        
+                        '''
                             #snr_opt = calc_snr(network[x[0]],nodes[0], channel, los : bool, t=0)
                             #snr_base = calc_snr()
 
-                        if x[0] == y[0]:
+                        #if x[0] == y[0]:
+                        if x == y:
                             equals += 1
-                            difference = x[2] - y[2]
-                            diff_data.append(difference/simtime)
+                            #difference = x[2] - y[2]
+                            #diff_data.append(difference/simtime)
                         else:
                             equals += 1 - (bs_dist/1350)
+                        '''
 
                         dist_diff.append(bs_dist)
 
 
-                    line_data.append(equals/maxlen)
+                    line_data.append(equals/x[2])
 
             print(list(metrics['opt_uedistbs'][vel,ttt].keys()))
 
@@ -337,7 +425,7 @@ if __name__ == '__main__':
                     #line.set_dashes((15,10,15,10))
 
 
-                plot_name = metric+'-line-plot.jpg'
+                plot_name = metric+'-line-plot.eps'
 
                 plt.legend()
 
@@ -378,10 +466,10 @@ if __name__ == '__main__':
         plt.xlabel('Blockage Density $\lambda$ [objects/$m^2$]')
         plt.ylabel(plot_dict[metric]['ylabel'])
         plt.grid()
-        plt.savefig(plot_name,
+        plt.savefig('test2-'+plot_name,
                 dpi=300,                                                    
                 bbox_inches="tight",                                        
                 transparent=True,                                           
-                format="jpg")
+                format="eps")
 
         plt.show()
