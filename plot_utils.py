@@ -4,8 +4,11 @@
 import numpy as np
 from os import listdir, path
 from json import load
+from json import decoder
 from scipy.stats import norm
 from decompressor import decompressor
+import sys
+from os import get_terminal_size
 
 
 def todb(x : float) -> float:
@@ -13,6 +16,24 @@ def todb(x : float) -> float:
 
 def tolin(x : float) -> float:
     return 10**(x/10)
+
+def progress_bar(count, total, head=''):
+    columns = get_terminal_size()[0]
+
+    ratio = round(count/total, 2)
+    percentage = int(100*ratio)
+    
+    foot = '{percent:03d}%'.format(percent=percentage)
+    barlen = columns - len(foot+head) - 6
+
+    formatter = ''
+    if barlen > 0:
+        bar = '='*(int(ratio*barlen)-1)+'>'+' '*int((1-ratio)*barlen)
+        formatter = '\r{head} [{bar}] {foot}'.format(head=head,bar=bar,foot=foot)
+
+
+    sys.stdout.write(formatter)
+    sys.stdout.flush()
 
 class load_result:
     def __init__(self, rootdir):
@@ -25,14 +46,21 @@ class load_result:
 
     # This method process the files on a dir to extract results
     # given a string separator and a int or slice as index
-    def load(self, separator = '-', index = -1):
+    def load(self, separator = '-', index = -1, relax=True):
         data = {}
         for filename in listdir(self.rootdir):
             name = filename.split(separator)[index]
             if path.isfile(self.rootdir+filename):
                 filename = self.rootdir+filename
-                with open(filename, 'r') as jsonfile:
-                    data[name] = load(jsonfile)
+                try:
+                    with open(filename, 'r') as jsonfile:
+                        data[name] = load(jsonfile)
+                except decoder.JSONDecodeError:
+                    if relax:
+                        print(filename)
+                    else:
+                        exit()
+
 
 
 
@@ -159,20 +187,26 @@ def calc_diffs(data):
     snr_dict = {}
     similarity_dict = {}
     for vel in data['opt'].keys():
-        snr_dict[vel] = []
-        similarity_dict[vel] = []
+        snr_dict[vel] = {} 
+        similarity_dict[vel] = {}
+        for ttt in data['opt'][vel].keys():
+            snr_dict[vel][ttt] = []
+            similarity_dict[vel][ttt] = []
 
-        for var in data['opt'][vel].keys():
-            for instances in data['opt'][vel][var].keys():
-                snr_diff.append(tolin(data['opt'][vel][var][instances]['snr']) - 
-                        tolin(data['base'][vel][var][instances]['sinr']))
+            for var in data['opt'][vel][ttt].keys():
+                for instances in data['opt'][vel][ttt][var].keys():
+                    try:
+                        snr_diff.append(tolin(data['opt'][vel][ttt][var][instances]['snr']) - 
+                                tolin(data['base'][vel][ttt][var][instances]['sinr']))
 
-                similarity.append(calc_similarity(data['opt'][vel][var][instances]['association'],
-                                data['base'][vel][var][instances]['association']))
+                        similarity.append(calc_similarity(data['opt'][vel][ttt][var][instances]['association'],
+                                        data['base'][vel][ttt][var][instances]['association']))
+                    except KeyError:
+                        pass
 
 
-            snr_dict[vel].append(np.mean(snr_diff))
-            similarity_dict[vel].append(np.mean(similarity))
+                snr_dict[vel][ttt].append(np.mean(snr_diff))
+                similarity_dict[vel][ttt].append(np.mean(similarity))
 
     return snr_dict, similarity_dict
 

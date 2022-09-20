@@ -47,16 +47,16 @@ heap.setref()
 global mvars
 mvars = {}
 
-logging.basicConfig(filename='myfirstlog.log',
+logging.basicConfig(#filename='myfirstlog.log',
                     level=logging.DEBUG,
                     format='%(asctime)s : %(funcName)s : %(message)s')
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
-file_handler = logging.FileHandler('myfirstlog.log')
+#file_handler = logging.FileHandler('myfirstlog.log')
 formatter = logging.Formatter('%(asctime)s : %(funcName)s : %(message)s')
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
+#file_handler.setFormatter(formatter)
+#logger.addHandler(file_handler)
 
 def todb(x : float) -> float:
     return 10*np.log10(x)

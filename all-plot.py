@@ -17,6 +17,11 @@ from plot_utils import calc_avg_blockage
 from plot_utils import calc_gap
 from plot_utils import calc_bsdist
 from plot_utils import calc_diffs
+from plot_utils import progress_bar
+
+newplot_flag = False
+normal = True
+savefig = True
 
 metrics_dict = {
                 'rsrp' : {
@@ -107,21 +112,39 @@ metrics_dict = {
             }
 
 plotter = {
-        22:{
-            'label':'v=30km/h,$\\tau$=1280',
+        (22,160):{
+            'label':'v=30km/h,$\\tau$=160',
             'marker':'^',
             'size':10,
             'color':'blue'
             },
-        43:{
-            'label':'v=60km/h,$\\tau$=640',
+        (43,160):{
+            'label':'v=60km/h,$\\tau$=160',
             'marker':'+',
             'size':10,
             'color':'green'
             },
-        64:{
-            'label':'v=90km/h,$\\tau$=480',
+        (43,80):{
+            'label':'v=60km/h,$\\tau$=80',
+            'marker':'s',
+            'size':10,
+            'color':'green'
+            },
+        (64,160):{
+            'label':'v=90km/h,$\\tau$=160',
             'marker':'o',
+            'size':10,
+            'color':'red'
+            },
+        (64,80):{
+            'label':'v=90km/h,$\\tau$=80',
+            'marker':'*',
+            'size':10,
+            'color':'red'
+            },
+        (64,40):{
+            'label':'v=90km/h,$\\tau$=40',
+            'marker':'v',
             'size':10,
             'color':'red'
             },
@@ -205,9 +228,6 @@ def plot_from_dict(plot_dict, xticks, metrics, lines):
         plt.grid()
         plt.show()
 
-newplot_flag = False
-normal = True
-savefig = True
 
 if __name__ == "__main__":
     plt.rc('text', usetex=True)
@@ -227,9 +247,19 @@ if __name__ == "__main__":
             'base':{}
             }
 
+
+    ''' 
     vel_params = [(22,1280,203647),
                 (43,640,101823),
                 (64,480,67882)]
+    '''
+
+    vel_params = [(22,160,203647),
+                (43,160,101823),
+                (43,80,101823),
+                (64,80,67882),
+                (64,40,67882),
+                (64,160,67882)]
 
     x_ticks = [round(i*0.002 + 0.001,3) for i in range(5)]#np.transpose(x_params)[0]
     delay = [i*2+1 for i in range(5)]
@@ -241,16 +271,28 @@ if __name__ == "__main__":
     no_plot = metric_diff
 
     if newplot_flag:
+        total = len(plot_dict.keys())*len(vel_params)*len(x_ticks)*len(delay)*60
+        counter = 0
         for plot in plot_dict.keys():
             for vel, ttt, simtime in vel_params:
-                plot_dict[plot][vel] = {}
-                data_dict[plot][vel] = {}
+                try:
+                    data_dict[plot][vel][ttt] = {}
+                except KeyError:
+                    data_dict[plot][vel] = {}
+                    data_dict[plot][vel][ttt] = {}
+
+                try:
+                    plot_dict[plot][vel][ttt] = {}
+                except KeyError:
+                    plot_dict[plot][vel] = {}
+                    plot_dict[plot][vel][ttt] = {}
 
                 for var in x_ticks:
-                    data_dict[plot][vel][var] = {}
+                    data_dict[plot][vel][ttt][var] = {}
                     #data_dict[plot][vel][var], _ = load_result('instances/no-interference/{plot}/{tau}/{vel}/{Lambda}/{cap}/{Del}/'.format(
                     for l in delay:
-                        print(var,l)
+                        #print(var,l)
+
                         tmp_dict, _ = load_result('instances/no-interference/{plot}/{tau}/{vel}/{Lambda}/{cap}/{Del}/'.format(
                             plot=plot,
                             tau=ttt,
@@ -262,29 +304,38 @@ if __name__ == "__main__":
                         scenario = load_instance('instances/full-scenario/{vel}/{Lambda}/'.format(vel=vel, Lambda=var)).load()
                         #for instance in data_dict[plot][vel][var].keys():
                         for instance in tmp_dict.keys():
+                            counter += 1
+                            progress_bar(counter,total,head='{plot}, {tau:03d}, {vel}, {Lambda}, {Del}, {inst:02d}'.format(
+                                plot=plot,
+                                tau=ttt,
+                                vel=vel,
+                                Lambda=var,
+                                Del=l,
+                                inst=int(instance)))
+
                             key = int(instance) + (l//2)*int(len(tmp_dict.keys()))
                             #blk, blk_ratio, episodes, blk_duration = calc_avg_blockage(scenario[instance],data_dict[plot][vel][var][instance])
                             blk, blk_ratio, episodes, blk_duration = calc_avg_blockage(scenario[instance],tmp_dict[instance])
 
-                            data_dict[plot][vel][var][key] = tmp_dict[instance].copy()
+                            data_dict[plot][vel][ttt][var][key] = tmp_dict[instance].copy()
 
-                            data_dict[plot][vel][var][key]['blockage'] = blk 
-                            data_dict[plot][vel][var][key]['blk_ratio'] = blk_ratio
-                            data_dict[plot][vel][var][key]['blk_episodes'] = episodes
-                            data_dict[plot][vel][var][key]['blk_duration'] = blk_duration
-                            data_dict[plot][vel][var][key]['gap'] = calc_gap(tmp_dict[instance],scenario[instance]['scenario']['simTime'],68) 
+                            data_dict[plot][vel][ttt][var][key]['blockage'] = blk 
+                            data_dict[plot][vel][ttt][var][key]['blk_ratio'] = blk_ratio
+                            data_dict[plot][vel][ttt][var][key]['blk_episodes'] = episodes
+                            data_dict[plot][vel][ttt][var][key]['blk_duration'] = blk_duration
+                            data_dict[plot][vel][ttt][var][key]['gap'] = calc_gap(tmp_dict[instance],scenario[instance]['scenario']['simTime'],68) 
                             #data_dict[plot][vel][var[0]][key]['gap'] = calc_gap(data_dict[plot][vel][var][instance],scenario[instance]['scenario']['simTime'],68) 
-                            data_dict[plot][vel][var][key]['bs_dist'] = calc_bsdist(scenario[instance],tmp_dict[instance]) 
+                            data_dict[plot][vel][ttt][var][key]['bs_dist'] = calc_bsdist(scenario[instance],tmp_dict[instance]) 
                             #data_dict[plot][vel][var[0]][key]['bs_dist'] = calc_bsdist(scenario[instance],data_dict[plot][vel][var][instance]) 
                         
 
                     for metric in metrics_dict.keys():
                         if metric not in no_plot:
                             try:
-                                plot_dict[plot][vel][metric].append(extract_metric(data_dict[plot][vel][var]).errorplot(metric))
+                                plot_dict[plot][vel][ttt][metric].append(extract_metric(data_dict[plot][vel][ttt][var]).errorplot(metric))
                             except KeyError:
-                                plot_dict[plot][vel][metric] = []
-                                plot_dict[plot][vel][metric].append(extract_metric(data_dict[plot][vel][var]).errorplot(metric))
+                                plot_dict[plot][vel][ttt][metric] = []
+                                plot_dict[plot][vel][ttt][metric].append(extract_metric(data_dict[plot][vel][ttt][var]).errorplot(metric))
 
         plot_dict['diff'] = {}
         snr_diff,similarity = calc_diffs(data_dict)
@@ -310,11 +361,11 @@ if __name__ == "__main__":
         if normal:
             #x_ticks = np.transpose(x_params)[0]
             x_ticks = [round(i*0.002 + 0.001,3) for i in range(5)]
-            lines = np.transpose(vel_params)[0]
+            lines = vel_params #np.transpose(vel_params)
         else:
             #lines = np.transpose(x_params)[0]
             lines = [round(i*0.002 + 0.001,3) for i in range(5)]
-            x_ticks = np.transpose(vel_params)[0]
+            x_ticks = np.transpose(vel_params)
 
 
         for metric in metrics_dict:
@@ -324,12 +375,12 @@ if __name__ == "__main__":
                     for m, line in enumerate(lines):
                         if metric in metric_diff:
                             if normal:
-                                plt.plot(x_ticks,data[plot][metric][str(line)],
-                                label=plotter[line]['label'],
-                                color=plotter[line]['color'],
-                                marker=plotter[line]['marker'],
+                                plt.plot(x_ticks,data[plot][metric][str(line[0])][str(line[1])],
+                                label=plotter[(line[0],line[1])]['label'],
+                                color=plotter[(line[0],line[1])]['color'],
+                                marker=plotter[(line[0],line[1])]['marker'],
                                 markersize=10,
-                                markeredgecolor=plotter[line]['color'],
+                                markeredgecolor=plotter[(line[0],line[1])]['color'],
                                 markerfacecolor='None',
                                 linewidth=0.5
                                 )
@@ -341,34 +392,34 @@ if __name__ == "__main__":
                 elif metric not in metric_diff:
                     for m, line in enumerate(lines):
                         if normal:
-                            transposed = np.transpose(data[plot][str(line)][metric])
+                            transposed = np.transpose(data[plot][str(line[0])][str(line[1])][metric])
                             means = transposed[0]
                             intervals = transposed[1]
                             prefix = 'block'
 
                         else:
-                            means = [data[plot][str(vel)][metric][m][0] for vel in x_ticks]
-                            intervals = [data[plot][str(vel)][metric][m][1] for vel in x_ticks]
+                            means = [data[plot][str(vel)][str(line[1])][metric][m][0] for vel in x_ticks]
+                            intervals = [data[plot][str(vel)][str(line[1])][metric][m][1] for vel in x_ticks]
                             prefix = 'vel'
 
                         if n ==0:
                             plt.errorbar(x_ticks,means,yerr=intervals,
-                            label=plotter[line]['label'],
-                            color=plotter[line]['color'],
+                            label=plotter[(line[0],line[1])]['label'],
+                            color=plotter[(line[0],line[1])]['color'],
                             capsize=5.0,
-                            marker=plotter[line]['marker'],
+                            marker=plotter[(line[0],line[1])]['marker'],
                             markersize=10,
-                            markeredgecolor=plotter[line]['color'],
+                            markeredgecolor=plotter[(line[0],line[1])]['color'],
                             markerfacecolor='None',
                             linewidth=0.5
                             )
                         else:
                             line, _, __ = plt.errorbar(x_ticks,means,yerr=intervals,
-                            color=plotter[line]['color'],
+                            color=plotter[(line[0],line[1])]['color'],
                             capsize=5.0,
-                            marker=plotter[line]['marker'],
+                            marker=plotter[(line[0],line[1])]['marker'],
                             markersize=10,
-                            markeredgecolor=plotter[line]['color'],
+                            markeredgecolor=plotter[(line[0],line[1])]['color'],
                             markerfacecolor='None',
                             linewidth=0.5
                             )
