@@ -151,9 +151,9 @@ def calc_gap(data, simtime, hit):
     total_hit = data['handover']*hit
 
     if len(assoc) > 3:
-        return (simtime - assoc_time) + total_hit
+        return ((simtime - assoc_time) + total_hit)/simtime
     else:
-        return (simtime - assoc_time)
+        return (simtime - assoc_time)/simtime
 
 def calc_bsdist(scenario, result):
     dist = []
@@ -260,16 +260,29 @@ def calc_pingpongs(data, min_tos=1000):
     n_assoc = len(data['association'])
 
     for n, assoc in enumerate(data['association']):
+        '''
         if n>0 and n < n_assoc-1:
             nxt = data['association'][n+1]
             tos = assoc[2] - assoc[1]
-
+ 
             if (prev[0] == nxt[0] and
                     assoc[0] != nxt[0] and
                     tos <= min_tos):
                 pingpongs += 1
 
         prev = assoc
+        '''
+
+        prev = n
+        backtime = 0
+        acc_pingpongs = 0
+        while prev>0:
+            backtime += data['association'][prev][1] - data['association'][prev-1][1]
+            if  backtime <= min_tos:
+                if assoc[0] == data['association'][prev-1][0]:
+                    pingpongs += 1
+            prev -= 1
+
 
     return pingpongs/data['handover']
 
