@@ -61,9 +61,6 @@ class load_result:
                     else:
                         exit()
 
-
-
-
         return data, self.get_metrics(data['0'])
 
 
@@ -126,8 +123,6 @@ class load_instance:
 
                 decompressor(data[name])
 
-
-
         return data
 
 
@@ -179,6 +174,104 @@ def calc_bsdist(scenario, result):
             dist.append(bs_dist) 
 
     return np.mean(dist)
+
+
+def calc_handoverfailures(data, scenario, ttt, hit=68, t310=1000, n310=1, t311=1, n311=1):
+    failures = 0
+    vel_x = scenario['userEquipment'][0]['speed']['x']
+    vel_y = scenario['userEquipment'][0]['speed']['y']
+
+    bs_antenna_gain = 15
+    ue_antenna_gain = 15
+
+    rrcprocdelay = 5
+    hodecisiondelay = 15
+    x2delay = 5
+    x2procdelay = 5
+    admcontroldelay = 20
+    rrctxdelay = 5
+    hocmddelay = 15
+
+    state2 = rrcprocdelay + hodecisiondelay + 2*(x2delay+x2procdelay) + admcontroldelay + rrctxdelay + hocmddelay
+
+    
+
+    prev = []
+    for n, assoc in enumerate(data['association']):
+        counter310 = 0
+        timer310 = 0
+        counter311 = 0
+        bs = assoc[0]
+        bs_power = scenario['baseStation'][bs]['txPower']
+        noise_power = scenario['channel']['noisePower']
+
+        init = 0
+        if n > 0:
+            init = prev[2]
+
+        for t in range(init,assoc[2]):
+            ue_x = vel_x*t*1e-3/3.6
+            ue_y = vel_y*t*1e-3/3.6
+            bs_x = scenario['baseStation'][bs]['position']['x']
+            bs_y = scenario['baseStation'][bs]['position']['y']
+            bs_dist = np.hypot(ue_x-bs_x, ue_y-bs_y)
+
+            if scenario['blockage'][bs][0][t] == 1:
+                path_loss = 61.4 + 10*2*np.log10(bs_dist)
+            else:
+                path_loss = 72 + 10*2.92*np.log10(bs_dist)
+
+            snr = (bs_power + bs_antenna_gain + ue_antenna_gain - path_loss) - noise_power 
+
+            if snr >= -6:
+                counter311 += 1
+
+            if snr <-6 and counter310 > 0:
+                timer310 +=1
+
+            if snr <= -8:
+                counter310 += 1
+                timer310 +=1
+
+            if timer310 > 0 and (t == (assoc[2] - state2)):
+                failure += 1
+                break
+
+            if timer310 >= t310 and (t > (assoc[2] - state2 - ttt)) and  (t < (assoc[2] - state2)):
+                failure += 1
+                break
+
+            if t <= init + hit and counter310 > 0:
+                failure += 1
+                break
+
+
+        prev = assoc
+
+
+
+    return failures
+
+
+
+
+def calc_pingpongs(data, min_tos=1000):
+    pingpongs = 0
+    n_assoc = len(data['association'])
+
+    for n, assoc in enumerate(data['association']):
+        if n>0 and n < n_assoc-1:
+            nxt = data['association'][n+1]
+            tos = assoc[2] - assoc[1]
+
+            if (prev[0] == nxt[0] and
+                    assoc[0] != nxt[0] and
+                    tos <= min_tos):
+                pingpongs += 1
+
+        prev = assoc
+
+    return pingpongs/data['handover']
 
 
 def calc_diffs(data):

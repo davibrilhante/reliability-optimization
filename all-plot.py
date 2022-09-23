@@ -9,6 +9,7 @@ import matplotlib.lines as mlines
 from matplotlib.ticker import ScalarFormatter
 from matplotlib import use
 from json import dump, load
+from argparse import ArgumentParser
 
 from plot_utils import load_result
 from plot_utils import load_instance
@@ -18,10 +19,21 @@ from plot_utils import calc_gap
 from plot_utils import calc_bsdist
 from plot_utils import calc_diffs
 from plot_utils import progress_bar
+from plot_utils import calc_handoverfailures
+from plot_utils import calc_pingpongs
 
-newplot_flag = False
-normal = True
-savefig = True
+
+
+parser = ArgumentParser()
+parser.add_argument('-n','--new',action='store_true')
+parser.add_argument('-S','--speed',action='store_false')
+parser.add_argument('-s','--savefig',action='store_true')
+
+args = parser.parse_args()
+
+newplot_flag = args.new
+normal = args.speed
+savefig = args.savefig
 
 metrics_dict = {
                 'rsrp' : {
@@ -42,6 +54,11 @@ metrics_dict = {
                 'handover' : {
                             'title' : 'Average Number of handovers',
                             'ylabel': ' Handovers',
+                            'ypercent' : False 
+                    },
+                'hofailure' : {
+                            'title' : 'Average Number of handover failures',
+                            'ylabel': 'failures',
                             'ypercent' : False 
                     },
                 'pingpong' : {
@@ -129,6 +146,24 @@ plotter = {
             'marker':'s',
             'size':10,
             'color':'green'
+            },
+        (64,640):{
+            'label':'v=90km/h,$\\tau$=160',
+            'marker':'o',
+            'size':10,
+            'color':'red'
+            },
+        (64,480):{
+            'label':'v=90km/h,$\\tau$=160',
+            'marker':'o',
+            'size':10,
+            'color':'red'
+            },
+        (64,320):{
+            'label':'v=90km/h,$\\tau$=160',
+            'marker':'o',
+            'size':10,
+            'color':'red'
             },
         (64,160):{
             'label':'v=90km/h,$\\tau$=160',
@@ -254,12 +289,16 @@ if __name__ == "__main__":
                 (64,480,67882)]
     '''
 
-    vel_params = [(22,160,203647),
-                (43,160,101823),
+    vel_params = [
+                (22,160,203647),
+                #(43,160,101823),
                 (43,80,101823),
-                (64,80,67882),
-                (64,40,67882),
-                (64,160,67882)]
+                #(64,640,67882),
+                #(64,480,67882),
+                #(64,320,67882),
+                #(64,160,67882),
+                #(64,80,67882),
+                (64,40,67882)]
 
     x_ticks = [round(i*0.002 + 0.001,3) for i in range(5)]#np.transpose(x_params)[0]
     delay = [i*2+1 for i in range(5)]
@@ -327,6 +366,8 @@ if __name__ == "__main__":
                             #data_dict[plot][vel][var[0]][key]['gap'] = calc_gap(data_dict[plot][vel][var][instance],scenario[instance]['scenario']['simTime'],68) 
                             data_dict[plot][vel][ttt][var][key]['bs_dist'] = calc_bsdist(scenario[instance],tmp_dict[instance]) 
                             #data_dict[plot][vel][var[0]][key]['bs_dist'] = calc_bsdist(scenario[instance],data_dict[plot][vel][var][instance]) 
+                            data_dict[plot][vel][ttt][var][key]['hofailure'] = calc_handoverfailures(tmp_dict[instance],scenario[instance],ttt) 
+                            data_dict[plot][vel][ttt][var][key]['pingpong'] = calc_pingpongs(tmp_dict[instance]) 
                         
 
                     for metric in metrics_dict.keys():
