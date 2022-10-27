@@ -1,6 +1,7 @@
 import fivegmodules.core
+import numpy as np
 
-__all__ = ['Handover', 'A3Handover', 'PredictionHandover']
+__all__ = ['Handover', 'A3Handover', 'HeuristicHandover']
 
 class Handover:
     def __init__(self):
@@ -27,13 +28,69 @@ class A3Handover(Handover):
         self.handoverCount = 0
         self.handoverPreparationStart = 0
         self.handoverFlag = False
- 
+
+        ### To solve composition problems
+        self.parent = self
+        #self.handoverDecisionFunction = 
+
+    def handovercause(self, device, targetBS):
+        if device.lineofsight[device.servingBS][device.env.now] == 0:
+            # Handover due to non line of sight condition
+            handoverCause = 0
+
+        elif (device.calcDist(device.scenarioBasestations[targetBS]) 
+                < device.calcDist(device.scenarioBasestations[device.servingBS])):
+            # Handover due to user mobility, i.e., closer to target BS than to Serving BS
+            handoverCause = 1
+
+        elif device.listedRSRP[targetBS] > device.listedRSRP[device.servingBS]:
+            # Handover due to severe channel fluctuations
+            handoverCause = 2
+
+        return handoverCause
+
+    def loghandovercause(self, device, handoverCause):
+        if handoverCause == 0:
+            # Handover due to non line of sight condition
+            try:
+                device.kpi.log['HOC000'] += 1
+            except KeyError:
+                device.kpi.log['HOC000'] = 1
+
+        elif handoverCause == 1:
+            # Handover due to user mobility, i.e., closer to target BS than to Serving BS
+            try:
+                device.kpi.log['HOC001'] += 1
+            except KeyError:
+                device.kpi.log['HOC001'] = 1
+
+        elif handoverCause == 2:
+            # Handover due to severe channel fluctuations
+            try:
+                device.kpi.log['HOC002'] += 1
+            except KeyError:
+                device.kpi.log['HOC002'] = 1
+
+        else:
+            # Non specified reason to handover trigger
+            try:
+                device.kpi.log['HOC099'] += 1
+            except KeyError:
+                device.kpi.log['HOC099'] = 1
+
+    def loghandoverfailure(self, device, failurecode, n):
+        try:
+            device.kpi.log[failurecode] += n
+        except KeyError:
+            device.kpi.log[failurecode] = n
+
     def triggerMeasurement(self, device, targetBS):
         counterTTT = 0
+        #print(device.env.now, device.sync, device.measOccurring, self.handoverFlag) 
                    
         if not device.sync:
             self.handoverFailure(device)
-                   
+
         # First, check if another measurement is not in progress
         elif not device.measOccurring and not self.handoverFlag:
             # If it is not, check whether it is an A3 event or not
@@ -52,20 +109,9 @@ class A3Handover(Handover):
                 # Given that it is an A3 event, triggers the measurement
                 device.measOccurring = True
                 device.triggerTime = device.env.now
-                self.handoverCount += 1
+                self.parent.handoverCount += 1
 
-                if device.lineofsight[device.servingBS][device.env.now] == 0:
-                    # Handover due to non line of sight condition
-                    handoverCause = 0
-
-                elif (device.calcDist(device.scenarioBasestations[targetBS]) 
-                        < device.calcDist(device.scenarioBasestations[device.servingBS])):
-                    # Handover due to user mobility, i.e., closer to target BS than to Serving BS
-                    handoverCause = 1
-
-                elif device.listedRSRP[targetBS] > device.listedRSRP[device.servingBS]:
-                    # Handover due to severe channel fluctuations
-                    handoverCause = 2
+                handoverCause = self.handovercause(device,targetBS)
                  
                 while counterTTT < device.networkParameters.timeToTrigger:
                     yield device.env.timeout(device.networkParameters.timeToMeasure)
@@ -87,19 +133,11 @@ class A3Handover(Handover):
 
                             # Too earlier handover attempt, might have been just
                             # a channel fluctuation
-                            try:
-                                device.kpi.log['HOF000'] += 1
-                            except KeyError:
-                                device.kpi.log['HOF000'] = 1
-
+                            self.loghandoverfailure(device,'HOF000',1)
                             break
                     else:
                         # Too late handover, user got out-sync in the middle of it
-
-                        try:
-                            device.kpi.log['HOF001'] += 1
-                        except KeyError:
-                            device.kpi.log['HOF001'] = 1
+                        self.loghandoverfailure(device,'HOF001',1)
 
                         device.kpi.handover +=1
                         self.handoverFailure(device)
@@ -110,42 +148,13 @@ class A3Handover(Handover):
                     device.kpi.handover +=1
  
                     if device.sync:
-                        if handoverCause == 0:
-                            # Handover due to non line of sight condition
-                            try:
-                                device.kpi.log['HOC000'] += 1
-                            except KeyError:
-                                device.kpi.log['HOC000'] = 1
-
-                        elif handoverCause == 1:
-                            # Handover due to user mobility, i.e., closer to target BS than to Serving BS
-                            try:
-                                device.kpi.log['HOC001'] += 1
-                            except KeyError:
-                                device.kpi.log['HOC001'] = 1
-
-                        elif handoverCause == 2:
-                            # Handover due to severe channel fluctuations
-                            try:
-                                device.kpi.log['HOC002'] += 1
-                            except KeyError:
-                                device.kpi.log['HOC002'] = 1
-
-                        else:
-                            # Non specified reason to handover trigger
-                            try:
-                                device.kpi.log['HOC099'] += 1
-                            except KeyError:
-                                device.kpi.log['HOC099'] = 1
-
-
-                        device.env.process(self.sendMeasurementReport(device, targetBS))
+                        self.loghandovercause(device, handoverCause)
+                        device.env.process(self.parent.sendMeasurementReport(device, targetBS))
      
+                    # Too late handover, user got out-sync in the middle of it
+                    # and will not be able to communicate with Serving BS to complete
                     else:
-                        try:
-                            device.kpi.log['HOF002'] += 1
-                        except KeyError:
-                            device.kpi.log['HOF002'] = 1
+                        self.loghandoverfailure(device,'HOF002',1)
                         self.handoverFailure(device)
 
                 device.measOccurring = False
@@ -187,8 +196,6 @@ class A3Handover(Handover):
                 device.kpi.log['HOF002'] = 1
             self.handoverFailure(device)
         '''
-
- 
  
     def handoverFailure(self, device):
         device.lastBS.append(device.servingBS)
@@ -207,6 +214,7 @@ class A3Handover(Handover):
                 device.kpi.outofsync.append([device.env.now])
             except:
                 device.kpi.outofsync = [[device.env.now]]
+
 
     def switchBaseStation(self, device, targetBS):
         if device.sync:
@@ -292,26 +300,163 @@ class A3Handover(Handover):
 
                 else:
                     # Handover fail due to not received handover complete
-                    try:
-                        device.kpi.log['HOF004'] += 1
-                    except KeyError:
-                        device.kpi.log['HOF004'] = 1
-
+                    self.loghandoverfailure(device,'HOF004',1)
                     self.handoverFailure(device)
                 self.handoverExecutionFlag = False
 
             # Failed to receive Handover Command
             else:
-                try:
-                    device.kpi.log['HOF003'] += 1
-                except KeyError:
-                    device.kpi.log['HOF003'] = 1
-
+                self.loghandoverfailure(device,'HOF003',1)
                 self.handoverFailure(device)
 
             self.handoverPreparationFlag = False
 
 
 
-class PredictionHandover(Handover):
-    pass
+class HeuristicHandover(Handover):
+    def __init__(self):
+        super(HeuristicHandover, self).__init__()
+        self.a3 = A3Handover()
+        ### To solve composition problems
+        self.a3.parent = self
+
+        self.decisionHelper = None
+        self.decisionData = None
+
+        self.handoverExecutionFlag = False
+        self.handoverPreparationFlag = False
+        self.x2Delay = 5 #milliseconds
+        self.handoverCount = 0
+        self.handoverPreparationStart = 0
+        self.handoverFlag = False
+
+
+    def triggerMeasurement(self, device, targetBS):
+        return self.a3.triggerMeasurement(device, targetBS)
+        
+
+
+    def sendMeasurementReport(self, device, targetBS):
+        if device.sync:
+            # Holds the time to send the RRC:Measurement Report
+            yield device.env.timeout(device.networkParameters.RRCMsgTransmissionDelay)
+
+            # Check if it is a pingpong, just for kpi assessment
+            if device.lastBS.count(targetBS)>0:
+                device.kpi.pingpong += 1
+
+            #Base stations processing the handover at X2 interface
+            self.handoverPreparationFlag = True
+            self.a3.handoverPreparationFlag = True
+
+            self.handoverPreparationStart = device.env.now
+
+            yield device.env.timeout(
+                device.scenarioBasestations[device.servingBS].RRCprocessingDelay
+                + device.scenarioBasestations[device.servingBS].handoverDecisionDelay)
+
+            self.decisionData = self.decisionHelper.getData(device, targetBS)
+            if (self.decisionHelper.getDecision(*self.decisionData)):
+                yield device.env.timeout(
+                    + 2*self.x2Delay
+                    + 2*device.scenarioBasestations[targetBS].X2processingDelay
+                    + device.scenarioBasestations[targetBS].admissionControlDelay)
+
+                # Switch to the new BS
+                device.env.process(self.switchBaseStation(device, targetBS))
+
+            else:
+                self.handoverPreparationFlag = False
+                self.a3.handoverPreparationFlag = False
+
+                self.handoverFlag = False
+                self.a3.handoverFlag = False
+
+                device.kpi.handover -=1
+
+                yield device.env.timeout(
+                    device.scenarioBasestations[device.servingBS].RRCprocessingDelay
+                    + device.scenarioBasestations[device.servingBS].handoverDecisionDelay)
+ 
+    def handoverFailure(self, device):
+        return self.a3.handoverFailure(device)
+ 
+    def switchBaseStation(self, device, targetBS):
+        return self.a3.switchBaseStation(device, targetBS)
+
+class DecisionHelper:
+    def __init__(self):
+        pass
+
+    def getDecision(self,*args,**kwargs):
+        raise NotImplementedError
+
+    def getData(self,device,targetBS):
+        raise NotImplementedError
+
+class PredictionHelper(DecisionHelper):
+    def __init__(self):
+        super(PredictionHelper, self).__init__()
+        self.prediction_window = 0
+        self.deteriorate=False
+
+    def getDecision(self,serving_prediction, target_prediction):
+        serving_score = self.scoringFunction(serving_prediction)
+        target_score = self.scoringFunction(target_prediction)
+        #print(serving_score, target_score)
+
+        if target_score <= serving_score:
+            return True
+        else:
+            return False
+
+    def getData(self, device, targetBS):
+        init = device.env.now
+        end = device.env.now + self.prediction_window
+        if not self.deteriorate:
+            s_prediction = device.lineofsight[device.servingBS][init:end]
+            t_prediction = device.lineofsight[targetBS][init:end]
+        return [s_prediction, t_prediction]
+
+
+    def scoringFunction(self, prediction):
+        score = 0
+        burst = False
+        n=0
+
+        for p, i in enumerate(reversed(prediction)):
+            if i == 1:
+                burst=False
+                n=0
+            else:
+                burst=True
+                n+=1
+
+            if burst:
+                score += (1+np.log2(p+1))*(2**n)
+
+        return np.ceil(score)
+
+
+class ProbabilityHelper(DecisionHelper):
+    def __init__(self):
+        super(ProbabilityHelper, self).__init__()
+        self.ho_prob = 0
+        self.step = 0
+
+    def getDecision(self):
+        if np.random.rand() <= self.ho_prob:
+            return True
+        else:
+            return False
+
+    def getData(self, device, targetBS):
+        if device.lastBS == targetBS:
+            self.updateProb(-1)
+        else:
+            self.updateProb(+1)
+
+        return None
+
+    def updateProb(self, sense=1):
+        self.ho_prob += sense*self.step
