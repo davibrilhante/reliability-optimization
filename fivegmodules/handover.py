@@ -1,5 +1,6 @@
 import fivegmodules.core
 import numpy as np
+from decimal import Decimal
 
 __all__ = ['Handover', 'A3Handover', 'HeuristicHandover']
 
@@ -433,7 +434,7 @@ class PredictionHelper(DecisionHelper):
                 n+=1
 
             if burst:
-                score += (1+np.log2(p+1))*(2**n)
+                score += (1+np.log2(p+1))*(2**(n/10))
 
         return np.ceil(score)
 

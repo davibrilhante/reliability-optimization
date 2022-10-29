@@ -265,9 +265,14 @@ def plot_from_dict(plot_dict, xticks, metrics, lines):
 
 
 if __name__ == "__main__":
+    use('ps')
+    #use('pgf')
     plt.rc('text', usetex=True)
-    plt.rc('font', family='serif', size=18)
-    use('PS')
+    plt.rc('font', family='serif', size=22)
+    #plt.rc('pgf',texsystem='pdflatex')
+    #plt.rc('pgf',rcfonts=False)
+    plt.rc('figure',figsize=[10.5,8.3])
+    plt.rc('figure',dpi=300)
 
     xfmt = ScalarFormatter()
     xfmt.set_powerlimits((-1,3))
@@ -476,8 +481,10 @@ if __name__ == "__main__":
 
 
             plt.ylabel(metrics_dict[metric]['ylabel'])
-            plt.title(metrics_dict[metric]['title'])
+            plt.xlabel('Blockage Density $\lambda$ [objects/$m^2$]')
+            #plt.title(metrics_dict[metric]['title'])
             plt.legend(handles+elements,labels+['opt','base'],)
+            plt.xticks(x_ticks)
             plt.grid()
             if savefig:
                 plt.savefig('{prefix}-{metric}.eps'.format(prefix=prefix,metric=metric),
@@ -489,3 +496,4 @@ if __name__ == "__main__":
             plt.close()
             plt.clf()
             plt.cla()
+

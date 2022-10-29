@@ -4,5 +4,9 @@
 *.lp
 *.tar.gz
 lix*
+*.png
+*.eps
+*.pgf
+*.pdf
 out/
 __pycache__
