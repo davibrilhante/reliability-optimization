@@ -41,6 +41,7 @@ parser.add_argument('--untoggleShadowing', action='store_false')
 parser.add_argument('--untoggleInterference', action='store_false')
 parser.add_argument('--uedelay', type=int)
 parser.add_argument('--uecapacity', type=float)
+parser.add_argument('--prediction', type=int, default=512)
 args = parser.parse_args()
 
 
@@ -157,7 +158,7 @@ if __name__ == '__main__':
 
         mobiles[i['uuid']].handover = HeuristicHandover()
         mobiles[i['uuid']].handover.decisionHelper = PredictionHelper()
-        mobiles[i['uuid']].handover.decisionHelper.prediction_window = 200
+        mobiles[i['uuid']].handover.decisionHelper.prediction_window = args.prediction
 
 
         mobiles[i['uuid']].addLosInfo(LOS, n)
