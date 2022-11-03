@@ -61,7 +61,8 @@ class load_result:
                     else:
                         exit()
 
-        return data, self.get_metrics(data['0'])
+        key = list(data.keys())[0]
+        return data, self.get_metrics(data[key])
 
 
 class extract_metric:
