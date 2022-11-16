@@ -26,6 +26,100 @@ parser.add_argument('-n','--new',action='store_true')
 
 args = parser.parse_args()
 
+metrics_dict = {
+                'rsrp' : {
+                            'title' : 'Average Received Signal Reference Power',
+                            'ylabel': 'RSRP [dBm]',
+                            'ypercent' : False
+                        },
+                'gap' : {
+                            'title' : 'Average Interruption Time',
+                            'ylabel': 'Interruption Time  [ms]',
+                            'ypercent' : False 
+                    },
+                'partDelay':{
+                            'title' : 'Average Packets delivered before delay expiration ',
+                            'ylabel': 'Delivery Rate [\%]',
+                            'ypercent' : True
+                },
+                'handover' : {
+                            'title' : 'Average Number of handovers',
+                            'ylabel': ' Handovers',
+                            'ypercent' : False 
+                    },
+                'hofailure' : {
+                            'title' : 'Average Number of handover failures',
+                            'ylabel': 'failures',
+                            'ypercent' : False 
+                    },
+                'pingpong' : {
+                            'title' : 'Average Ping-Pong Handover Rate',
+                            'ylabel': 'Ping-pongs [\%]',
+                            'ypercent' : True 
+                    },
+                'handoverRate' : {
+                            'title' : 'Average Handover Rate',
+                            'ylabel': 'Handovers per second',
+                            'ypercent' : False 
+                    },
+                'capacity' : {
+                            'title' : 'Average Shannon Capacity',
+                            'ylabel': 'Capacity [bps]',
+                            'ypercent' : False 
+                    },
+                'deliveryRate': {
+                            'title' : 'Average packet delivery rate',
+                            'ylabel': 'Delivery Rate [\%]',
+                            'ypercent' : True
+                    },
+                'delay' : {
+                            'title' : 'Average Packet Delay',
+                            'ylabel': 'Delay [ms]',
+                            'ypercent' : False 
+                },
+                'gap' : {
+                            'title' : 'Average Interruption Time',
+                            'ylabel': 'Interruption [ms]',
+                            'ypercent' : False 
+                },
+                'blockage' : {
+                            'title' : 'Average Blockage Duration',
+                            'ylabel': 'Blockage [ms]',
+                            'ypercent' : False 
+                },
+                'blk_ratio' : {
+                            'title' : 'Average Blockage Duration',
+                            'ylabel': 'Blockage [\%]',
+                            'ypercent' : True
+                },
+                'blk_episodes' : {
+                            'title' : 'Average Blockage Episodes',
+                            'ylabel': 'Blockage Episodes',
+                            'ypercent' : False
+                },
+                'blk_duration' : {
+                            'title' : 'Average Blockage Episode Duration',
+                            'ylabel': 'Blockage [ms]',
+                            'ypercent' : False
+                },
+                'bs_dist' : {
+                            'title' : 'Average Distance to serving BS',
+                            'ylabel': 'Average Distance',
+                            'ypercent' : False 
+                },
+                'snr_diff' : {
+                            'title' : 'Average SNR Difference Between\n Optimization and Baseline',
+                            'ylabel': 'Average SNR Differente',
+                            'ypercent': False 
+                },
+                'similarity':{
+                            'ylabel':'Overlap Similarity',
+                            'title': 'Overlap BS Association Similarity',
+                            'ypercent':False
+                }
+            }
+
+
 if __name__ == "__main__":
     vel_params = [(22,160,203647),
             (43,80,101823),
@@ -112,13 +206,12 @@ if __name__ == "__main__":
             exit()
 
 
-        #metrics_dict = ['rsrp','handover','handoverRate','delay',
-        #        'pingpong','gap','blockage','deliveryRate'
-        #        'blk_ratio','blk_episodes','blk_duration']
-        metrics_dict = ['pingpong']
+        metrics = ['rsrp','handover','handoverRate','delay',
+                'pingpong','gap','blockage','deliveryRate',
+                'blk_ratio','blk_episodes','blk_duration','partDelay']
         lines = ['pred', 'pred','pred','opt','base']
         
-        for metric in metrics_dict:
+        for metric in metrics:
             for vel, ttt, _ in vel_params:
                 for n, line in enumerate(lines):
                     vel = str(vel)
@@ -139,7 +232,9 @@ if __name__ == "__main__":
                     plt.errorbar(Lambda,mean,yerr=conf_int,label=lbl)
 
                 plt.title('Velocity = {v}, TTT = {t}'.format(v=vel,t=ttt))
+                plt.ylabel(metrics_dict[metric]['ylabel'])
+                plt.xlabel('Blockage Density $\lambda$ [objects/$m^2$]')
                 plt.grid()
                 plt.legend()
-                plt.show()
                 plt.savefig('{m}-{v}-{t}.png'.format(m=metric,v=vel,t=ttt))
+                plt.show()

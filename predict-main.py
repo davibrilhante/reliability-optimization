@@ -42,6 +42,7 @@ parser.add_argument('--untoggleInterference', action='store_false')
 parser.add_argument('--uedelay', type=int)
 parser.add_argument('--uecapacity', type=float)
 parser.add_argument('--prediction', type=int, default=512)
+parser.add_argument('--pred_offset',type=float,default=0.1)
 args = parser.parse_args()
 
 
@@ -159,6 +160,7 @@ if __name__ == '__main__':
         mobiles[i['uuid']].handover = HeuristicHandover()
         mobiles[i['uuid']].handover.decisionHelper = PredictionHelper()
         mobiles[i['uuid']].handover.decisionHelper.prediction_window = args.prediction
+        mobiles[i['uuid']].pred_offset = args.pred_offset
 
 
         mobiles[i['uuid']].addLosInfo(LOS, n)

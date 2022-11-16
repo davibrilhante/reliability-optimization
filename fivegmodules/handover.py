@@ -401,9 +401,9 @@ class PredictionHelper(DecisionHelper):
         self.prediction_window = 0
         self.deteriorate=False
 
-    def getDecision(self,serving_prediction, target_prediction):
-        serving_score = self.scoringFunction(serving_prediction)
-        target_score = self.scoringFunction(target_prediction)
+    def getDecision(self,serving_prediction, target_prediction, angles):
+        serving_score = self.scoringFunction([serving_prediction,angles[0], angles[-1]])
+        target_score = self.scoringFunction([target_prediction,angles[1],angles[-1]])
         #print(serving_score, target_score)
 
         if target_score <= serving_score:
@@ -417,7 +417,21 @@ class PredictionHelper(DecisionHelper):
         if not self.deteriorate:
             s_prediction = device.lineofsight[device.servingBS][init:end]
             t_prediction = device.lineofsight[targetBS][init:end]
-        return [s_prediction, t_prediction]
+
+        ue_angle = np.arctan2(device.Vy,device.Vx)
+        s_angle = abs(ue_angle + 
+                np.arctan2(device.scenarioBasestations[device.servingBS].y - device.y,
+                            device.scenarioBasestations[device.servingBS].x - device.x))
+        t_angle = abs(ue_angle + 
+                np.arctan2(device.scenarioBasestations[targetBS].y - device.y,
+                            device.scenarioBasestations[targetBS].x - device.x))
+
+
+        ue_speed = np.hypot(device.Vx,device.Vy) 
+        s_distance = device.calcDist(device.scenarioBasestations[device.servingBS])
+        t_distance = device.calcDist(device.scenarioBasestations[targetBS])
+
+        return [s_prediction, t_prediction, [s_angle, t_angle, ue_speed, s_distance, t_distance, device.pred_offset]]
 
 
     def scoringFunction(self, prediction):
@@ -425,7 +439,7 @@ class PredictionHelper(DecisionHelper):
         burst = False
         n=0
 
-        for p, i in enumerate(reversed(prediction)):
+        for p, i in enumerate(reversed(prediction[0])):
             if i == 1:
                 burst=False
                 n=0
@@ -436,7 +450,15 @@ class PredictionHelper(DecisionHelper):
             if burst:
                 score += (1+np.log2(p+1))*(2**(n/10))
 
-        return np.ceil(score)
+        '''
+        Calculate the angular score
+        '''
+        angular_f = prediction[2] + prediction[1]/(2*np.pi)
+        #angular_f = abs(np.log2(prediction[1])/np.log2(2*np.pi))
+
+
+
+        return angular_f*np.ceil(score)
 
 
 class ProbabilityHelper(DecisionHelper):

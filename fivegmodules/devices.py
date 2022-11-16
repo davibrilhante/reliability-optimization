@@ -5,6 +5,7 @@ from numpy import mean
 from numpy.random import normal, uniform, choice
 from numpy import pi
 from numpy import exp
+from numpy import zeros
 import operator
 
 from json import dumps
@@ -786,6 +787,8 @@ class MobileUser(MeasurementDevice):
 
         self.max_pkt_retry = 10
         self.packet_generator = None
+        self.pred_offset = 0 
+        self.pred_probs = zeros(len(self.scenarioBasestations))
 
     def capacity2snr(self):
         return 10*log10(2**(
