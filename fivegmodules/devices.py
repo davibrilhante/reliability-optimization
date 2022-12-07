@@ -788,7 +788,7 @@ class MobileUser(MeasurementDevice):
         self.max_pkt_retry = 10
         self.packet_generator = None
         self.pred_offset = 0 
-        self.pred_probs = zeros(len(self.scenarioBasestations))
+        self.pred_probs = {} #i:0.0 for i in self.scenarioBasestations}
 
     def capacity2snr(self):
         return 10*log10(2**(

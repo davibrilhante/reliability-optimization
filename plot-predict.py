@@ -129,7 +129,8 @@ if __name__ == "__main__":
     delay = [i*2 + 1 for i in range(5)]
     seeds = range(60)
 
-    pred_w = [256,512,1024] 
+    #pred_w = [256,512,1024] 
+    pred_w = [2560, 3200, 5120] 
 
     total = len(vel_params)*len(Lambda)*len(pred_w)*60
     no_plot = ['association','log']
@@ -193,7 +194,7 @@ if __name__ == "__main__":
 
     else:
         try:
-            with open('pred-out.json') as infile:
+            with open('pred-out-1.json') as infile:
                 pred = load(infile)
 
         except FileNotFoundError:

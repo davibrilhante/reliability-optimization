@@ -430,6 +430,29 @@ class PredictionHelper(DecisionHelper):
         ue_speed = np.hypot(device.Vx,device.Vy) 
         s_distance = device.calcDist(device.scenarioBasestations[device.servingBS])
         t_distance = device.calcDist(device.scenarioBasestations[targetBS])
+        
+        sbs = list(device.scenarioBasestations.keys()).index(device.servingBS)
+        tbs = list(device.scenarioBasestations.keys()).index(targetBS)
+
+        try:
+            device.kpi.log['sbs_score'].append([sbs,device.env.now,
+                len(s_prediction), self.scoringFunction([s_prediction]),
+                list(s_prediction).count(0),list(s_prediction).count(1)])
+        except KeyError:
+            device.kpi.log['sbs_score'] = [[sbs,device.env.now,
+                len(s_prediction), self.scoringFunction([s_prediction]),
+                list(s_prediction).count(0),list(s_prediction).count(1)]]
+
+        try:
+            device.kpi.log['tbs_score'].append([tbs,device.env.now,
+                len(t_prediction), self.scoringFunction([t_prediction]),
+                list(t_prediction).count(0),list(t_prediction).count(1)])
+        except KeyError:
+            device.kpi.log['tbs_score'] = [[tbs,device.env.now,
+                len(t_prediction), self.scoringFunction([t_prediction]),
+                list(t_prediction).count(0),list(t_prediction).count(1)]]
+
+
 
         return [s_prediction, t_prediction, [s_angle, t_angle, ue_speed, s_distance, t_distance, device.pred_offset]]
 
@@ -438,6 +461,7 @@ class PredictionHelper(DecisionHelper):
         score = 0
         burst = False
         n=0
+        W = len(prediction[0])
 
         for p, i in enumerate(reversed(prediction[0])):
             if i == 1:
@@ -448,17 +472,16 @@ class PredictionHelper(DecisionHelper):
                 n+=1
 
             if burst:
-                score += (1+np.log2(p+1))*(2**(n/10))
+                score += (1+np.log10(p+1))*(2**(n/W))
 
         '''
         Calculate the angular score
-        '''
-        angular_f = prediction[2] + prediction[1]/(2*np.pi)
+        angular_f = prediction[2]+(1-prediction[2])*prediction[1]/(2*np.pi)
         #angular_f = abs(np.log2(prediction[1])/np.log2(2*np.pi))
-
-
-
         return angular_f*np.ceil(score)
+        '''
+
+        return score
 
 
 class ProbabilityHelper(DecisionHelper):
@@ -467,19 +490,21 @@ class ProbabilityHelper(DecisionHelper):
         self.ho_prob = 0
         self.step = 0
 
-    def getDecision(self):
-        if np.random.rand() <= self.ho_prob:
+    def getDecision(self, device, targetBS, probability):
+        if np.random.rand() <= probability: #self.ho_prob:
+            self.updateProb(device, targetBS)
             return True
         else:
             return False
 
     def getData(self, device, targetBS):
+        return [device, targetBS, device.pred_probs[targetBS]]
+        
+
+
+    def updateProb(self, device, targetBS):
         if device.lastBS == targetBS:
-            self.updateProb(-1)
+            #self.updateProb(-1)
+            device.pred_probs[targetBS] = max(0, device.pred_probs[targetBS] - self.step)
         else:
-            self.updateProb(+1)
-
-        return None
-
-    def updateProb(self, sense=1):
-        self.ho_prob += sense*self.step
+            device.pred_probs[targetBS] = min(1, device.pred_probs[targetBS] + self.step)
