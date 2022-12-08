@@ -189,7 +189,7 @@ if __name__ == "__main__":
                                     plot_dict[vel][ttt][l][pred][metric] = []
                                     plot_dict[vel][ttt][l][pred][metric].append(extract_metric(out_dict[vel][ttt][l][pred]).errorplot(metric))
 
-        with open('pred-out.json','w') as outfile:
+        with open('pred-out-1.json','w') as outfile:
             dump(plot_dict, outfile)
 
     else:
