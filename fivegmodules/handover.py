@@ -402,9 +402,15 @@ class PredictionHelper(DecisionHelper):
         self.deteriorate=False
 
     def getDecision(self,serving_prediction, target_prediction, angles):
-        serving_score = self.scoringFunction([serving_prediction,angles[0], angles[-1]])
-        target_score = self.scoringFunction([target_prediction,angles[1],angles[-1]])
+        #serving_score = self.scoringFunction([serving_prediction,angles[0], angles[-1]])
+        #target_score = self.scoringFunction([target_prediction,angles[1],angles[-1]])
         #print(serving_score, target_score)
+        serving_score = self.scoringFunction([serving_prediction],
+                chemgrid=True,distance=angles[3], 
+                ue_gain=5,bs_gain=5,direction=angles[0])
+        target_score = self.scoringFunction([target_prediction],
+                chemgrid=True,distance=angles[4], 
+                ue_gain=5,bs_gain=5,direction=angles[1])
 
         if target_score <= serving_score:
             return True
@@ -419,12 +425,21 @@ class PredictionHelper(DecisionHelper):
             t_prediction = device.lineofsight[targetBS][init:end]
 
         ue_angle = np.arctan2(device.Vy,device.Vx)
-        s_angle = abs(ue_angle + 
+        s_angle = abs(ue_angle - 
                 np.arctan2(device.scenarioBasestations[device.servingBS].y - device.y,
                             device.scenarioBasestations[device.servingBS].x - device.x))
-        t_angle = abs(ue_angle + 
+        t_angle = abs(ue_angle - 
                 np.arctan2(device.scenarioBasestations[targetBS].y - device.y,
                             device.scenarioBasestations[targetBS].x - device.x))
+
+        if s_angle > np.pi/2 or s_angle < -np.pi/2:
+            s_angle = -1
+        else:
+            s_angle = 1
+        if t_angle > np.pi/2 or t_angle < -np.pi/2:
+            t_angle = -1
+        else:
+            t_angle = 1
 
 
         ue_speed = np.hypot(device.Vx,device.Vy) 
@@ -434,22 +449,29 @@ class PredictionHelper(DecisionHelper):
         sbs = list(device.scenarioBasestations.keys()).index(device.servingBS)
         tbs = list(device.scenarioBasestations.keys()).index(targetBS)
 
+        serving_score = self.scoringFunction([s_prediction],
+                chemgrid=True,distance=t_distance, 
+                ue_gain=5,bs_gain=5,direction=s_angle)
+
+        target_score = self.scoringFunction([t_prediction],
+                chemgrid=True,distance=t_distance, 
+                ue_gain=5,bs_gain=5,direction=t_angle)
         try:
             device.kpi.log['sbs_score'].append([sbs,device.env.now,
-                len(s_prediction), self.scoringFunction([s_prediction]),
+                len(s_prediction), serving_score,
                 list(s_prediction).count(0),list(s_prediction).count(1)])
         except KeyError:
             device.kpi.log['sbs_score'] = [[sbs,device.env.now,
-                len(s_prediction), self.scoringFunction([s_prediction]),
+                len(s_prediction), serving_score,
                 list(s_prediction).count(0),list(s_prediction).count(1)]]
 
         try:
             device.kpi.log['tbs_score'].append([tbs,device.env.now,
-                len(t_prediction), self.scoringFunction([t_prediction]),
+                len(t_prediction), target_score,
                 list(t_prediction).count(0),list(t_prediction).count(1)])
         except KeyError:
             device.kpi.log['tbs_score'] = [[tbs,device.env.now,
-                len(t_prediction), self.scoringFunction([t_prediction]),
+                len(t_prediction), target_score,
                 list(t_prediction).count(0),list(t_prediction).count(1)]]
 
 
@@ -457,22 +479,30 @@ class PredictionHelper(DecisionHelper):
         return [s_prediction, t_prediction, [s_angle, t_angle, ue_speed, s_distance, t_distance, device.pred_offset]]
 
 
-    def scoringFunction(self, prediction):
+    def scoringFunction(self, prediction,*args,**kwargs):
         score = 0
         burst = False
         n=0
+        m=0
         W = len(prediction[0])
+
+        attraction = 0
 
         for p, i in enumerate(reversed(prediction[0])):
             if i == 1:
                 burst=False
+                m+=1
                 n=0
             else:
                 burst=True
+                m = 0
                 n+=1
 
             if burst:
                 score += (1+np.log10(p+1))*(2**(n/W))
+
+            else:
+                attraction += (1+np.log10(p+1))*(2**(m/W))
 
         '''
         Calculate the angular score
@@ -480,6 +510,16 @@ class PredictionHelper(DecisionHelper):
         #angular_f = abs(np.log2(prediction[1])/np.log2(2*np.pi))
         return angular_f*np.ceil(score)
         '''
+
+        if kwargs['chemgrid']:
+            try:
+                f1 = score/(kwargs['distance']**4)
+                f2 = attraction/(kwargs['distance']**2)
+                f3 = 332*kwargs['direction']*kwargs['ue_gain']*kwargs['bs_gain']/(kwargs['distance']**2)
+                score = f1 - f2 - f3
+
+            except KeyError:
+                print("Chemgrid parameters not specified retrieving to log score.")
 
         return score
 
