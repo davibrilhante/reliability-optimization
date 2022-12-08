@@ -130,7 +130,8 @@ if __name__ == "__main__":
     seeds = range(60)
 
     #pred_w = [256,512,1024] 
-    pred_w = [2560, 3200, 5120] 
+    #pred_w = [2560, 3200, 5120] 
+    pred_w = [512,1024,2560, 3200] 
 
     total = len(vel_params)*len(Lambda)*len(pred_w)*60
     no_plot = ['association','log']
@@ -157,7 +158,7 @@ if __name__ == "__main__":
 
                         print(vel, l, dly, pred)
                         tmp_dict, _ = load_result(
-                        'instances/no-interference/pred/{tau}/{vel}/{Lambda}/750e6/{delay}/{pred}/'.format(
+                        'instances/no-interference/3pred/{tau}/{vel}/{Lambda}/750e6/{delay}/{pred}/'.format(
                             tau=ttt,
                             vel=vel,
                             Lambda=l,
