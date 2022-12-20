@@ -499,10 +499,14 @@ class PredictionHelper(DecisionHelper):
                 n+=1
 
             if burst:
-                score += (1+np.log10(p+1))*(2**(n/W))
+                #score += (1+np.log10(p+1))*(2**(n/W))
+                #score += (1+np.log10(100*(p+1)/W))*(2**(m/W))
+                score += (1+np.log10((p+1)/W))*(2**(n/W))/W
 
             else:
-                attraction += (1+np.log10(p+1))*(2**(m/W))
+                #attraction += (1+np.log10(p+1))*(2**(m/W))
+                #attraction += (1+np.log10(100*(p+1)/W))*(2**(m/W))
+                attraction += (1+np.log10((p+1)/W))*(2**(n/W))/W
 
         '''
         Calculate the angular score
