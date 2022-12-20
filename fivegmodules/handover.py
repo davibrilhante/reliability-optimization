@@ -406,11 +406,13 @@ class PredictionHelper(DecisionHelper):
         #target_score = self.scoringFunction([target_prediction,angles[1],angles[-1]])
         #print(serving_score, target_score)
         serving_score = self.scoringFunction([serving_prediction],
-                chemgrid=True,distance=angles[3], 
-                ue_gain=5,bs_gain=5,direction=angles[0])
+                chemgrid=False)
+                #chemgrid=True,distance=angles[3], 
+                #ue_gain=5,bs_gain=5,direction=angles[0])
         target_score = self.scoringFunction([target_prediction],
-                chemgrid=True,distance=angles[4], 
-                ue_gain=5,bs_gain=5,direction=angles[1])
+                chemgrid=False)
+                #chemgrid=True,distance=angles[4], 
+                #ue_gain=5,bs_gain=5,direction=angles[1])
 
         if target_score <= serving_score:
             return True
