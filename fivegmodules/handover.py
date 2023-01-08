@@ -1,6 +1,7 @@
 import fivegmodules.core
 import numpy as np
 from decimal import Decimal
+import operator
 
 __all__ = ['Handover', 'A3Handover', 'HeuristicHandover']
 
@@ -357,14 +358,20 @@ class HeuristicHandover(Handover):
                 + device.scenarioBasestations[device.servingBS].handoverDecisionDelay)
 
             self.decisionData = self.decisionHelper.getData(device, targetBS)
-            if (self.decisionHelper.getDecision(*self.decisionData)):
+            decision, whichBS = self.decisionHelper.getDecision(device, self.decisionData)
+
+            if decision:
+            #if (self.decisionHelper.getDecision(*self.decisionData)):
                 yield device.env.timeout(
                     + 2*self.x2Delay
-                    + 2*device.scenarioBasestations[targetBS].X2processingDelay
-                    + device.scenarioBasestations[targetBS].admissionControlDelay)
+                    #+ 2*device.scenarioBasestations[targetBS].X2processingDelay
+                    #+ device.scenarioBasestations[targetBS].admissionControlDelay)
+                    + 2*device.scenarioBasestations[whichBS].X2processingDelay
+                    + device.scenarioBasestations[whichBS].admissionControlDelay)
 
                 # Switch to the new BS
-                device.env.process(self.switchBaseStation(device, targetBS))
+                #device.env.process(self.switchBaseStation(device, targetBS))
+                device.env.process(self.switchBaseStation(device, whichBS))
 
             else:
                 self.handoverPreparationFlag = False
@@ -401,10 +408,14 @@ class PredictionHelper(DecisionHelper):
         self.prediction_window = 0
         self.deteriorate=False
 
-    def getDecision(self,serving_prediction, target_prediction, angles):
+    #def getDecision(self, serving_prediction, target_prediction, angles):
+    def getDecision(self,device,BSdata,*args,**kwargs):
+        '''
         #serving_score = self.scoringFunction([serving_prediction,angles[0], angles[-1]])
         #target_score = self.scoringFunction([target_prediction,angles[1],angles[-1]])
         #print(serving_score, target_score)
+        #print(target_prediction)
+
         serving_score = self.scoringFunction([serving_prediction],
                 chemgrid=False)
                 #chemgrid=True,distance=angles[3], 
@@ -414,27 +425,81 @@ class PredictionHelper(DecisionHelper):
                 #chemgrid=True,distance=angles[4], 
                 #ue_gain=5,bs_gain=5,direction=angles[1])
 
-        if target_score <= serving_score:
-            return True
-        else:
-            return False
+        #print(serving_score, target_score)
+
+            if target_score <= serving_score:
+                return True
+
+            else:
+                return False
+            '''
+        scores = {}
+        decision = True
+        for BS, prediction in BSdata.items():
+            scores[BS] = self.scoringFunction(prediction,chemgrid=False)
+
+        try:
+            device.kpi.log['score'][device.env.now] = scores
+        except KeyError:
+            device.kpi.log['score'] = {}
+            device.kpi.log['score'][device.env.now] = scores
+
+
+        chosenBS = min(scores.items(),key=operator.itemgetter(1))[0]
+
+        if ((chosenBS == device.servingBS)):# or
+                #(device.listedRSRP[chosenBS] < -90)):
+                    #+ device.networkParameters.handoverOffset
+                    #+ device.networkParameters.handoverHysteresys)):
+            decision = False
+
+        '''
+        try:
+            device.kpi.log['tbs_score'].append([tbs,device.env.now,
+                len(t_prediction), target_score,
+                list(t_prediction).count(0),list(t_prediction).count(1)])
+        except KeyError:
+            device.kpi.log['tbs_score'] = [[tbs,device.env.now,
+                len(t_prediction), target_score,
+                list(t_prediction).count(0),list(t_prediction).count(1)]]
+        '''
+
+        return decision, chosenBS
+
 
     def getData(self, device, targetBS):
         init = device.env.now
         end = device.env.now + self.prediction_window
+
+        predictions = {}
         if not self.deteriorate:
-            s_prediction = device.lineofsight[device.servingBS][init:end]
-            t_prediction = device.lineofsight[targetBS][init:end]
+            #s_prediction = device.lineofsight[device.servingBS][init:end]
+            #t_prediction = device.lineofsight[targetBS][init:end]
 
-        ue_angle = np.arctan2(device.Vy,device.Vx)
-        s_angle = abs(ue_angle - 
-                np.arctan2(device.scenarioBasestations[device.servingBS].y - device.y,
-                            device.scenarioBasestations[device.servingBS].x - device.x))
-        t_angle = abs(ue_angle - 
-                np.arctan2(device.scenarioBasestations[targetBS].y - device.y,
-                            device.scenarioBasestations[targetBS].x - device.x))
+            '''
+            It will iterate over all the BS and store the predictions on the
+            dictionary by the uuid of each BS
+            '''
+            for bs in device.scenarioBasestations:
+                predictions[bs] = device.lineofsight[bs][init:end]
+        else:
+            raise NotImplementedError
 
-        if s_angle > np.pi/2 or s_angle < -np.pi/2:
+        '''
+        Returns the predictions to the decision function
+        '''
+        return predictions
+
+        '''
+            ue_angle = np.arctan2(device.Vy,device.Vx)
+            s_angle = abs(ue_angle - 
+                    np.arctan2(device.scenarioBasestations[device.servingBS].y - device.y,
+                                device.scenarioBasestations[device.servingBS].x - device.x))
+            t_angle = abs(ue_angle - 
+                    np.arctan2(device.scenarioBasestations[targetBS].y - device.y,
+                                device.scenarioBasestations[targetBS].x - device.x))
+
+            if s_angle > np.pi/2 or s_angle < -np.pi/2:
             s_angle = -1
         else:
             s_angle = 1
@@ -479,36 +544,41 @@ class PredictionHelper(DecisionHelper):
 
 
         return [s_prediction, t_prediction, [s_angle, t_angle, ue_speed, s_distance, t_distance, device.pred_offset]]
+        '''
 
 
     def scoringFunction(self, prediction,*args,**kwargs):
         score = 0
+        attraction = 0
         burst = False
         n=0
         m=0
-        W = len(prediction[0])
+        W = len(prediction)
 
-        attraction = 0
 
-        for p, i in enumerate(reversed(prediction[0])):
+        for p, i in enumerate(prediction):
             if i == 1:
                 burst=False
                 m+=1
-                n=0
+                #n=0
             else:
+                if not burst:
+                    m += 1
                 burst=True
-                m = 0
-                n+=1
+                #m = 0
+                n += 1
 
             if burst:
                 #score += (1+np.log10(p+1))*(2**(n/W))
                 #score += (1+np.log10(100*(p+1)/W))*(2**(m/W))
-                score += (1+np.log10((p+1)/W))*(2**(n/W))/W
+                #score += (1+np.log10((p+1)/W))*(2**(n/W))/W
+                score += (n/W)**(1/8)
 
             else:
                 #attraction += (1+np.log10(p+1))*(2**(m/W))
                 #attraction += (1+np.log10(100*(p+1)/W))*(2**(m/W))
-                attraction += (1+np.log10((p+1)/W))*(2**(n/W))/W
+                #attraction += (1+np.log10((p+1)/W))*(2**(n/W))/W
+                attraction += (m/W)**(1/8)
 
         '''
         Calculate the angular score
@@ -525,9 +595,9 @@ class PredictionHelper(DecisionHelper):
                 score = f1 - f2 - f3
 
             except KeyError:
-                print("Chemgrid parameters not specified retrieving to log score.")
+                print("Chemgrid parameters were not specified. Retrieving to log score.")
 
-        return score
+        return (n/m)**(1/8) #score/W
 
 
 class ProbabilityHelper(DecisionHelper):
