@@ -408,44 +408,51 @@ class PredictionHelper(DecisionHelper):
         self.prediction_window = 0
         self.deteriorate=False
 
-    #def getDecision(self, serving_prediction, target_prediction, angles):
     def getDecision(self,device,BSdata,*args,**kwargs):
-        '''
-        #serving_score = self.scoringFunction([serving_prediction,angles[0], angles[-1]])
-        #target_score = self.scoringFunction([target_prediction,angles[1],angles[-1]])
-        #print(serving_score, target_score)
-        #print(target_prediction)
-
-        serving_score = self.scoringFunction([serving_prediction],
-                chemgrid=False)
-                #chemgrid=True,distance=angles[3], 
-                #ue_gain=5,bs_gain=5,direction=angles[0])
-        target_score = self.scoringFunction([target_prediction],
-                chemgrid=False)
-                #chemgrid=True,distance=angles[4], 
-                #ue_gain=5,bs_gain=5,direction=angles[1])
-
-        #print(serving_score, target_score)
-
-            if target_score <= serving_score:
-                return True
-
-            else:
-                return False
-            '''
         scores = {}
+        dists = {}
         decision = True
+        ue_angle = np.arctan2(device.Vy,device.Vx)
+
         for BS, prediction in BSdata.items():
-            scores[BS] = self.scoringFunction(prediction,chemgrid=False)
+
+            bs_angle = np.arctan2(device.scenarioBasestations[BS].y - device.y,
+                                device.scenarioBasestations[BS].x - device.x)
+
+            angle = bs_angle - ue_angle
+
+            #print(device.x, device.y, BS, device.scenarioBasestations[BS].x, 
+            #        device.scenarioBasestations[BS].y, np.degrees(angle))
+
+
+            if angle > np.pi/2 or angle < -np.pi/2:
+                angle = 1
+            else:
+                angle = -1
+
+            dists[BS] = angle*device.calcDist(device.scenarioBasestations[BS])
+
+            '''
+            '''
+            if dists[BS] < 0:
+                scores[BS] = self.scoringFunction(prediction,chemgrid=False)
+            else:
+                scores[BS] = self.scoringFunction(prediction,distance=dists[BS],chemgrid=False)
 
         try:
-            device.kpi.log['score'][device.env.now] = scores
+            device.kpi.log['score'][device.env.now] = scores #{i  : [scores[i], dists[i]] for i in scores.keys()}
         except KeyError:
             device.kpi.log['score'] = {}
-            device.kpi.log['score'][device.env.now] = scores
+            device.kpi.log['score'][device.env.now] = scores #{i  : [scores[i], dists[i]] for i in scores.keys()} 
 
 
-        chosenBS = min(scores.items(),key=operator.itemgetter(1))[0]
+        #chosenBS = min(scores.items(),key=operator.itemgetter(1))[0]
+        if any(n<0 for n in dists.values()):
+            negs = {i : scores[i] for i in scores.keys() if dists[i] < 0}
+            chosenBS = min(negs.items(),key=operator.itemgetter(1))[0]
+
+        else:
+            chosenBS = min(scores.items(),key=operator.itemgetter(1))[0]
 
         if ((chosenBS == device.servingBS)):# or
                 #(device.listedRSRP[chosenBS] < -90)):
@@ -453,16 +460,6 @@ class PredictionHelper(DecisionHelper):
                     #+ device.networkParameters.handoverHysteresys)):
             decision = False
 
-        '''
-        try:
-            device.kpi.log['tbs_score'].append([tbs,device.env.now,
-                len(t_prediction), target_score,
-                list(t_prediction).count(0),list(t_prediction).count(1)])
-        except KeyError:
-            device.kpi.log['tbs_score'] = [[tbs,device.env.now,
-                len(t_prediction), target_score,
-                list(t_prediction).count(0),list(t_prediction).count(1)]]
-        '''
 
         return decision, chosenBS
 
@@ -472,10 +469,10 @@ class PredictionHelper(DecisionHelper):
         end = device.env.now + self.prediction_window
 
         predictions = {}
+        '''
+        Considers the possibility of deteriorating the prediction to make it more real
+        '''
         if not self.deteriorate:
-            #s_prediction = device.lineofsight[device.servingBS][init:end]
-            #t_prediction = device.lineofsight[targetBS][init:end]
-
             '''
             It will iterate over all the BS and store the predictions on the
             dictionary by the uuid of each BS
@@ -490,61 +487,6 @@ class PredictionHelper(DecisionHelper):
         '''
         return predictions
 
-        '''
-            ue_angle = np.arctan2(device.Vy,device.Vx)
-            s_angle = abs(ue_angle - 
-                    np.arctan2(device.scenarioBasestations[device.servingBS].y - device.y,
-                                device.scenarioBasestations[device.servingBS].x - device.x))
-            t_angle = abs(ue_angle - 
-                    np.arctan2(device.scenarioBasestations[targetBS].y - device.y,
-                                device.scenarioBasestations[targetBS].x - device.x))
-
-            if s_angle > np.pi/2 or s_angle < -np.pi/2:
-            s_angle = -1
-        else:
-            s_angle = 1
-        if t_angle > np.pi/2 or t_angle < -np.pi/2:
-            t_angle = -1
-        else:
-            t_angle = 1
-
-
-        ue_speed = np.hypot(device.Vx,device.Vy) 
-        s_distance = device.calcDist(device.scenarioBasestations[device.servingBS])
-        t_distance = device.calcDist(device.scenarioBasestations[targetBS])
-        
-        sbs = list(device.scenarioBasestations.keys()).index(device.servingBS)
-        tbs = list(device.scenarioBasestations.keys()).index(targetBS)
-
-        serving_score = self.scoringFunction([s_prediction],
-                chemgrid=True,distance=t_distance, 
-                ue_gain=5,bs_gain=5,direction=s_angle)
-
-        target_score = self.scoringFunction([t_prediction],
-                chemgrid=True,distance=t_distance, 
-                ue_gain=5,bs_gain=5,direction=t_angle)
-        try:
-            device.kpi.log['sbs_score'].append([sbs,device.env.now,
-                len(s_prediction), serving_score,
-                list(s_prediction).count(0),list(s_prediction).count(1)])
-        except KeyError:
-            device.kpi.log['sbs_score'] = [[sbs,device.env.now,
-                len(s_prediction), serving_score,
-                list(s_prediction).count(0),list(s_prediction).count(1)]]
-
-        try:
-            device.kpi.log['tbs_score'].append([tbs,device.env.now,
-                len(t_prediction), target_score,
-                list(t_prediction).count(0),list(t_prediction).count(1)])
-        except KeyError:
-            device.kpi.log['tbs_score'] = [[tbs,device.env.now,
-                len(t_prediction), target_score,
-                list(t_prediction).count(0),list(t_prediction).count(1)]]
-
-
-
-        return [s_prediction, t_prediction, [s_angle, t_angle, ue_speed, s_distance, t_distance, device.pred_offset]]
-        '''
 
 
     def scoringFunction(self, prediction,*args,**kwargs):
@@ -554,20 +496,39 @@ class PredictionHelper(DecisionHelper):
         n=0
         m=0
         W = len(prediction)
+        blocks = []
+        free = []
+
 
 
         for p, i in enumerate(prediction):
             if i == 1:
                 burst=False
                 m+=1
-                #n=0
-            else:
-                if not burst:
-                    m += 1
-                burst=True
-                #m = 0
-                n += 1
+                if n != 0:
+                    blocks.append(n)
+                n=0
 
+            else:
+                burst=True
+                n += 1
+                if m != 0:
+                    free.append(m)
+                m = 0
+
+        if burst:
+            blocks.append(n)
+        else:
+            free.append(m)
+
+        if not blocks:
+            blocks.append(0)
+        if not free:
+            free.append(0)
+
+
+
+        '''
             if burst:
                 #score += (1+np.log10(p+1))*(2**(n/W))
                 #score += (1+np.log10(100*(p+1)/W))*(2**(m/W))
@@ -580,12 +541,10 @@ class PredictionHelper(DecisionHelper):
                 #attraction += (1+np.log10((p+1)/W))*(2**(n/W))/W
                 attraction += (m/W)**(1/8)
 
-        '''
         Calculate the angular score
         angular_f = prediction[2]+(1-prediction[2])*prediction[1]/(2*np.pi)
         #angular_f = abs(np.log2(prediction[1])/np.log2(2*np.pi))
         return angular_f*np.ceil(score)
-        '''
 
         if kwargs['chemgrid']:
             try:
@@ -597,7 +556,49 @@ class PredictionHelper(DecisionHelper):
             except KeyError:
                 print("Chemgrid parameters were not specified. Retrieving to log score.")
 
-        return (n/m)**(1/8) #score/W
+        '''
+
+        try:
+            distance = kwargs['distance']
+        except KeyError:
+            distance = 0
+
+        try:
+            bsradius = kwargs['bsradius']
+        except KeyError:
+            bsradius = 150
+
+        factor = 0
+
+        '''
+        If the distance is negative means that the BS is ahead.
+        Otherwise, it is behind, so it is not a good option for a handover.
+        This function below is weird, but it penalizes distant and back BS
+        '''
+        if distance < 0:
+            factor = (abs(distance) - 1.25*bsradius)/bsradius
+        else:
+            factor = distance/bsradius
+
+        '''
+        Treats the case when the score is zero
+        '''
+        w = 1/2
+
+        if (max(blocks) >= W//4):
+            trigger = 1
+        else:
+            trigger = 0
+
+
+        if (np.mean(free) >= 10):
+            lostrigger = 1
+        else:
+            lostrigger = 0
+
+        return w*np.mean(blocks)**(1/8) + w*factor + w*(trigger) - w*(lostrigger) #score, attraction
+        #return w*factor + w*(max(blocks)/W) #score, attraction
+
 
 
 class ProbabilityHelper(DecisionHelper):
