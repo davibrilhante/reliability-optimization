@@ -426,18 +426,18 @@ class PredictionHelper(DecisionHelper):
 
 
             if angle > np.pi/2 or angle < -np.pi/2:
-                angle = 1
-            else:
                 angle = -1
+            else:
+                angle = 1
 
             dists[BS] = angle*device.calcDist(device.scenarioBasestations[BS])
 
             '''
-            '''
             if dists[BS] < 0:
                 scores[BS] = self.scoringFunction(prediction,chemgrid=False)
             else:
-                scores[BS] = self.scoringFunction(prediction,distance=dists[BS],chemgrid=False)
+            '''
+            scores[BS] = self.scoringFunction(prediction,distance=dists[BS],chemgrid=False)
 
         try:
             device.kpi.log['score'][device.env.now] = scores #{i  : [scores[i], dists[i]] for i in scores.keys()}
@@ -446,13 +446,15 @@ class PredictionHelper(DecisionHelper):
             device.kpi.log['score'][device.env.now] = scores #{i  : [scores[i], dists[i]] for i in scores.keys()} 
 
 
-        #chosenBS = min(scores.items(),key=operator.itemgetter(1))[0]
-        if any(n<0 for n in dists.values()):
-            negs = {i : scores[i] for i in scores.keys() if dists[i] < 0}
-            chosenBS = min(negs.items(),key=operator.itemgetter(1))[0]
+        '''
+        chosenBS = max(scores.items(),key=operator.itemgetter(1))[0]
+        '''
+        if any(n>0 for n in dists.values()):
+            negs = {i : scores[i] for i in scores.keys() if dists[i] >= 0}
+            chosenBS = max(negs.items(),key=operator.itemgetter(1))[0]
 
         else:
-            chosenBS = min(scores.items(),key=operator.itemgetter(1))[0]
+            chosenBS = max(scores.items(),key=operator.itemgetter(1))[0]
 
         if ((chosenBS == device.servingBS)):# or
                 #(device.listedRSRP[chosenBS] < -90)):
@@ -490,73 +492,24 @@ class PredictionHelper(DecisionHelper):
 
 
     def scoringFunction(self, prediction,*args,**kwargs):
-        score = 0
+        W = len(prediction)
+        #score = 0
+        score = np.zeros(W)
+        rsrp = np.zeros(W)
+
+        k = 4
+        l = 4
+
         attraction = 0
         burst = False
+        
         n=0
         m=0
-        W = len(prediction)
+
         blocks = []
         free = []
 
-
-
-        for p, i in enumerate(prediction):
-            if i == 1:
-                burst=False
-                m+=1
-                if n != 0:
-                    blocks.append(n)
-                n=0
-
-            else:
-                burst=True
-                n += 1
-                if m != 0:
-                    free.append(m)
-                m = 0
-
-        if burst:
-            blocks.append(n)
-        else:
-            free.append(m)
-
-        if not blocks:
-            blocks.append(0)
-        if not free:
-            free.append(0)
-
-
-
-        '''
-            if burst:
-                #score += (1+np.log10(p+1))*(2**(n/W))
-                #score += (1+np.log10(100*(p+1)/W))*(2**(m/W))
-                #score += (1+np.log10((p+1)/W))*(2**(n/W))/W
-                score += (n/W)**(1/8)
-
-            else:
-                #attraction += (1+np.log10(p+1))*(2**(m/W))
-                #attraction += (1+np.log10(100*(p+1)/W))*(2**(m/W))
-                #attraction += (1+np.log10((p+1)/W))*(2**(n/W))/W
-                attraction += (m/W)**(1/8)
-
-        Calculate the angular score
-        angular_f = prediction[2]+(1-prediction[2])*prediction[1]/(2*np.pi)
-        #angular_f = abs(np.log2(prediction[1])/np.log2(2*np.pi))
-        return angular_f*np.ceil(score)
-
-        if kwargs['chemgrid']:
-            try:
-                f1 = score/(kwargs['distance']**4)
-                f2 = attraction/(kwargs['distance']**2)
-                f3 = 332*kwargs['direction']*kwargs['ue_gain']*kwargs['bs_gain']/(kwargs['distance']**2)
-                score = f1 - f2 - f3
-
-            except KeyError:
-                print("Chemgrid parameters were not specified. Retrieving to log score.")
-
-        '''
+        linkbudget = 23 + 10 + 10 # tx power + bs gain + ue gain
 
         try:
             distance = kwargs['distance']
@@ -568,6 +521,44 @@ class PredictionHelper(DecisionHelper):
         except KeyError:
             bsradius = 150
 
+        for p, i in enumerate(prediction):
+            alfa = np.exp(-1*k/l)
+
+            if i == 1:
+                burst=False
+                m+=1
+                if n != 0:
+                    blocks.append(n)
+                n=0
+                rsrp[p] = linkbudget - (61.4 + 10*2*np.log10(abs(distance)) + np.random.normal(0,5.8))
+
+            else:
+                burst=True
+                n += 1
+                if m != 0:
+                    free.append(m)
+                m = 0
+                rsrp[p] = linkbudget - (72 + 10*2.92*np.log10(abs(distance)) + np.random.normal(0,8.7))
+
+            if p == 0:
+                score[p] = alfa*i
+            else:
+                score[p] = (1 - alfa)*score[p-1] + alfa*i
+                #rsrp[p] = (1 - alfa)*rsrp[p-1] + alfa*rsrp[p]
+
+        if burst:
+            blocks.append(n)
+        else:
+            free.append(m)
+
+        if not blocks:
+            blocks.append(0)
+        if not free:
+            free.append(0)
+
+        #return (np.pi/2*np.sqrt(2))*np.mean(score)
+        rms = (np.pi/2*np.sqrt(2))*np.mean(score)
+
         factor = 0
 
         '''
@@ -575,14 +566,14 @@ class PredictionHelper(DecisionHelper):
         Otherwise, it is behind, so it is not a good option for a handover.
         This function below is weird, but it penalizes distant and back BS
         '''
-        if distance < 0:
-            factor = (abs(distance) - 1.25*bsradius)/bsradius
+
+        if distance > 0:
+            #factor = (abs(distance) - 1.25*bsradius)/bsradius
+            factor = (1.25*bsradius - distance)/bsradius
         else:
             factor = distance/bsradius
 
-        '''
-        Treats the case when the score is zero
-        '''
+        # Treats the case when the score is zero
         w = 1/2
 
         if (max(blocks) >= W//4):
@@ -596,7 +587,8 @@ class PredictionHelper(DecisionHelper):
         else:
             lostrigger = 0
 
-        return w*np.mean(blocks)**(1/8) + w*factor + w*(trigger) - w*(lostrigger) #score, attraction
+        return min(rsrp) #rms
+        #return w*np.mean(blocks)**(1/8) + w*factor + w*(trigger) - w*(lostrigger) #score, attraction
         #return w*factor + w*(max(blocks)/W) #score, attraction
 
 
