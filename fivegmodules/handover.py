@@ -587,7 +587,7 @@ class PredictionHelper(DecisionHelper):
         else:
             lostrigger = 0
 
-        return min(rsrp) #rms
+        return np.mean(rsrp) #rms
         #return w*np.mean(blocks)**(1/8) + w*factor + w*(trigger) - w*(lostrigger) #score, attraction
         #return w*factor + w*(max(blocks)/W) #score, attraction
 
