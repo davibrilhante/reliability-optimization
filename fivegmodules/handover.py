@@ -590,6 +590,8 @@ class PredictionHelper(DecisionHelper):
                 n = 0
         if burst:
             blocks.append(n)
+        if blocks == []:
+            return [0]
 
         return blocks
 
