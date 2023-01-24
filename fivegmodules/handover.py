@@ -588,6 +588,9 @@ class PredictionHelper(DecisionHelper):
                     blocks.append(n)
                 burst = False
                 n = 0
+        if burst:
+            blocks.append(n)
+
         return blocks
 
     def rsrp_calc(self, prediction, distance, Filter=False, num=1, den=4): 
