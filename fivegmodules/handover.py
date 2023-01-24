@@ -321,6 +321,8 @@ class HeuristicHandover(Handover):
         self.a3 = A3Handover()
         ### To solve composition problems
         self.a3.parent = self
+        
+        self.operator = ''
 
         self.decisionHelper = None
         self.decisionData = None
@@ -407,6 +409,7 @@ class PredictionHelper(DecisionHelper):
         super(PredictionHelper, self).__init__()
         self.prediction_window = 0
         self.deteriorate=False
+        self.operator = ''
 
     def getDecision(self,device,BSdata,*args,**kwargs):
         scores = {}
@@ -493,7 +496,7 @@ class PredictionHelper(DecisionHelper):
 
     def scoringFunction(self, prediction,*args,**kwargs):
         W = len(prediction)
-        #score = 0
+
         score = np.zeros(W)
         rsrp = np.zeros(W)
 
@@ -501,15 +504,9 @@ class PredictionHelper(DecisionHelper):
         l = 4
 
         attraction = 0
-        burst = False
-        
-        n=0
-        m=0
-
         blocks = []
         free = []
 
-        linkbudget = 23 + 10 + 10 # tx power + bs gain + ue gain
 
         try:
             distance = kwargs['distance']
@@ -521,75 +518,92 @@ class PredictionHelper(DecisionHelper):
         except KeyError:
             bsradius = 150
 
-        for p, i in enumerate(prediction):
-            alfa = np.exp(-1*k/l)
 
-            if i == 1:
-                burst=False
-                m+=1
-                if n != 0:
+        if self.operator=='' or self.operator=='score':
+            n=0
+            for i, p in enumerate(prediction):
+                if p == 1:
+                    n=0
+                else:
+                    n+=1
+
+                score[i] = (1 - p)*(1+np.log10(100*(W-i)/W))*(2**(n/W))
+
+            return np.mean(score)
+
+        elif self.operator=='root':
+            return ((W - sum(prediction))/W)**(1/8)
+
+        elif self.operator=='avgduration':
+            return np.mean(self.burst_process(prediction))
+
+        elif self.operator=='nepisodes':
+            return len(self.burst_process(prediction))
+
+        elif self.operator=='shortdist':
+            return abs(distance)
+
+        elif self.operator=='minmax':
+            return max(self.burst_process(prediction))
+
+        elif self.operator=='chemgrid':
+            return self.chemgrid(prediction)
+
+        elif self.operator=='maxmin':
+            return min(self.rsrp_calc(prediction,distance))
+
+        elif self.operator=='mean':
+            return np.mean(self.rsrp_calc(prediction,distance))
+
+        elif self.operator=='meandev':
+            return np.dev(self.rsrp_calc(prediction,distance))
+
+        elif self.operator=='movavg':
+            return self.movingavgerage(self.rsrp_calc(prediction,distance))
+
+        elif self.operator=='invavg':
+            return self.inverseaverage(self.rsrp_calc(prediction,distance))
+
+    def movingaverage(self, rsrp):
+        raise NotImplementedError
+
+    def inverseaverage(self, rsrp):
+        ordered = sorted(rsrp, reverse=True)
+        weights = list(range(len(rsrp)))
+        return np.average(ordered,weights=weights)
+
+    def chemgrid(self, prediction):
+        raise NotImplementedError
+
+    def burst_process(self,prediction):
+        n = 0
+        blocks = []
+        burst = False
+        for i, p in enumerate(prediction):
+            if p == 0:
+                burst = True
+                n+=1
+            else:
+                if burst:
                     blocks.append(n)
-                n=0
+                burst = False
+                n = 0
+        return blocks
+
+    def rsrp_calc(self, prediction, distance, Filter=False, num=1, den=4): 
+        alfa = np.exp(-1*num/den)
+        rsrp = np.zeros(len(prediction))
+        linkbudget = 23 + 10 + 10 # tx power + bs gain + ue gain
+        for p, i in enumerate(prediction):
+
+            rsrp[p] = linkbudget - (72 + 10*2.92*np.log10(abs(distance)) + np.random.normal(0,8.7))
+            if i == 1:
                 rsrp[p] = linkbudget - (61.4 + 10*2*np.log10(abs(distance)) + np.random.normal(0,5.8))
 
-            else:
-                burst=True
-                n += 1
-                if m != 0:
-                    free.append(m)
-                m = 0
-                rsrp[p] = linkbudget - (72 + 10*2.92*np.log10(abs(distance)) + np.random.normal(0,8.7))
+            if Filter and p != 0:
+                rsrp[p] = (1 - alfa)*rsrp[p-1] + alfa*rsrp[p]
 
-            if p == 0:
-                score[p] = alfa*i
-            else:
-                score[p] = (1 - alfa)*score[p-1] + alfa*i
-                #rsrp[p] = (1 - alfa)*rsrp[p-1] + alfa*rsrp[p]
-
-        if burst:
-            blocks.append(n)
-        else:
-            free.append(m)
-
-        if not blocks:
-            blocks.append(0)
-        if not free:
-            free.append(0)
-
-        #return (np.pi/2*np.sqrt(2))*np.mean(score)
-        rms = (np.pi/2*np.sqrt(2))*np.mean(score)
-
-        factor = 0
-
-        '''
-        If the distance is negative means that the BS is ahead.
-        Otherwise, it is behind, so it is not a good option for a handover.
-        This function below is weird, but it penalizes distant and back BS
-        '''
-
-        if distance > 0:
-            #factor = (abs(distance) - 1.25*bsradius)/bsradius
-            factor = (1.25*bsradius - distance)/bsradius
-        else:
-            factor = distance/bsradius
-
-        # Treats the case when the score is zero
-        w = 1/2
-
-        if (max(blocks) >= W//4):
-            trigger = 1
-        else:
-            trigger = 0
-
-
-        if (np.mean(free) >= 10):
-            lostrigger = 1
-        else:
-            lostrigger = 0
-
-        return np.mean(rsrp) #rms
-        #return w*np.mean(blocks)**(1/8) + w*factor + w*(trigger) - w*(lostrigger) #score, attraction
-        #return w*factor + w*(max(blocks)/W) #score, attraction
+        return rsrp
 
 
 
