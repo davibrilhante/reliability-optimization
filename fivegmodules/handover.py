@@ -451,13 +451,18 @@ class PredictionHelper(DecisionHelper):
 
         '''
         chosenBS = max(scores.items(),key=operator.itemgetter(1))[0]
-        '''
         if any(n>0 for n in dists.values()):
             negs = {i : scores[i] for i in scores.keys() if dists[i] >= 0}
             chosenBS = max(negs.items(),key=operator.itemgetter(1))[0]
 
         else:
             chosenBS = max(scores.items(),key=operator.itemgetter(1))[0]
+        '''
+        if self.operator in ['maxmin','mean','invavg','movavg','chemgrid']:
+            chosenBS = max(negs.items(),key=operator.itemgetter(1))[0]
+        elif self.operator in ['','score','root','avgduration',
+                                'mindev','minmax','shortdist', 'nepisodes']:
+            chosenBS = min(negs.items(),key=operator.itemgetter(1))[0]
 
         if ((chosenBS == device.servingBS)):# or
                 #(device.listedRSRP[chosenBS] < -90)):
@@ -555,7 +560,7 @@ class PredictionHelper(DecisionHelper):
         elif self.operator=='mean':
             return np.mean(self.rsrp_calc(prediction,distance))
 
-        elif self.operator=='meandev':
+        elif self.operator=='mindev':
             return np.dev(self.rsrp_calc(prediction,distance))
 
         elif self.operator=='movavg':
