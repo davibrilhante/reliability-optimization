@@ -459,10 +459,10 @@ class PredictionHelper(DecisionHelper):
             chosenBS = max(scores.items(),key=operator.itemgetter(1))[0]
         '''
         if self.operator in ['maxmin','mean','invavg','movavg','chemgrid']:
-            chosenBS = max(negs.items(),key=operator.itemgetter(1))[0]
+            chosenBS = max(scores.items(),key=operator.itemgetter(1))[0]
         elif self.operator in ['','score','root','avgduration',
                                 'mindev','minmax','shortdist', 'nepisodes']:
-            chosenBS = min(negs.items(),key=operator.itemgetter(1))[0]
+            chosenBS = min(scores.items(),key=operator.itemgetter(1))[0]
 
         if ((chosenBS == device.servingBS)):# or
                 #(device.listedRSRP[chosenBS] < -90)):
