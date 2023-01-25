@@ -561,7 +561,7 @@ class PredictionHelper(DecisionHelper):
             return np.mean(self.rsrp_calc(prediction,distance))
 
         elif self.operator=='mindev':
-            return np.dev(self.rsrp_calc(prediction,distance))
+            return np.std(self.rsrp_calc(prediction,distance))
 
         elif self.operator=='movavg':
             return self.movingavgerage(self.rsrp_calc(prediction,distance))
