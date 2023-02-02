@@ -569,6 +569,13 @@ class PredictionHelper(DecisionHelper):
         elif self.operator=='invavg':
             return self.inverseaverage(self.rsrp_calc(prediction,distance))
 
+        elif self.operator=='opt':
+            return self.bruteforce(self,prediction)
+
+    def bruteforce(self,prediction,maxhandovers=float('inf')):
+        raise NotImplementedError
+
+
     def movingaverage(self, rsrp):
         raise NotImplementedError
 
