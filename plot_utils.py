@@ -142,7 +142,10 @@ def calc_avg_blockage(scenario, result):
             else:
                 los = True
 
-    return blk, blk/scenario['scenario']['simTime'], episodes, blk/episodes
+    if episodes > 0:
+        return blk, blk/scenario['scenario']['simTime'], episodes, blk/episodes
+    else:
+        return blk, blk/scenario['scenario']['simTime'], episodes, 0
 
 def calc_gap(data, simtime, hit):
     assoc_time = 0

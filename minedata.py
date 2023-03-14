@@ -7,27 +7,28 @@ from decompressor import decompressor
 from optimization import calc_snr, calc_recv
 
 def catch_handover(time, bs, instance, ttt, offset=3, hysteresis =0):
-    init = max(t-tau, 0)
+    init = max(time-tau, 0)
     sbs_snr = []
     candidates = []
     for t in range(init,time):
         sbs_snr.append(calc_snr(instance['baseStation'][bs],
                             instance['userEquipment'][0],
                             instance['channel'],
-                            instance['userEquipment'][0]['blockage'][bs][0][t],
+                            instance['blockage'][bs][0][t],
                             t))
 
-    for tbs in range(instance['basStation'].values()):
+    for tbs in instance['baseStation']:
         flag = 0
         if tbs['index'] == bs:
             continue
 
-        for t in range(init, end)
-            tbs_snr = calc_snr(instance['baseStation'][tbs],
+        index = tbs['index']
+        for t in range(init, time):
+            tbs_snr = calc_snr(instance['baseStation'][index],
                                 instance['userEquipment'][0],
                                 instance['channel'],
-                                instance['userEquipment'][0]['blockage'][tbs][0][t],
-                                t))
+                                instance['blockage'][index][0][t],
+                                t)
 
             if tbs_snr >= sbs_snr[t-init] + offset + hysteresis:
                 flag+=1
@@ -35,7 +36,7 @@ def catch_handover(time, bs, instance, ttt, offset=3, hysteresis =0):
                 break
 
         if flag==ttt:
-            candidates.append(tbs)
+            candidates.append(index)
 
     return candidates
 
@@ -49,9 +50,9 @@ def list_stats(init,end,bs,instance):
         rsrp.append(calc_recv(instance['baseStation'][bs],
             instance['userEquipment'][0],
             instance['channel'],
-            instance['userEquipment'][0]['blockage'][bs][0][t]))
+            instance['blockage'][bs][0][t]))
 
-        if instance['userEquipment'][0]['blockage'][bs][0][t]:
+        if instance['blockage'][bs][0][t]:
             if nlos_slots != 0:
                 block.append(nlos_slots)
             nlos_slots = 0
@@ -59,11 +60,14 @@ def list_stats(init,end,bs,instance):
             nlos_slots += 1
 
         past_slots = t - init
-        current = past_slots//intervals
-        if past_slots%intervals == 0:
+        current = past_slots//interval
+        if past_slots%interval == 0:
             previous = init + max(current - 1, 0)*interval
-            current = init + current*intervals
-            rates.append(sum(instance['userEquipment'][0]['blockage'][bs][0][previous:current])/interval)
+            current = init + current*interval
+            rates.append(sum(instance['blockage'][bs][0][previous:current])/interval)
+
+    if nlos_slots!=0:
+        block.append(nlos_slots)
 
     return rsrp, block, rates
 
@@ -96,7 +100,7 @@ if __name__ == '__main__':
 
     densities = [round(i*0.002 + 0.001,3) for i in range(5)]
 
-    data = {]}
+    data = {}
 
     root = 'instances/'
     base_name = 'optimization-'
@@ -106,22 +110,22 @@ if __name__ == '__main__':
         for den in densities:
             for n in range(execs):
                 # Open the result file
-                filename = root+'no-interference/'+base_name+'-{v}-{t}-{l}-750e6-1-{n}'.format(v=vel, 
+                filename = root+'no-interference/opt/{t}/{v}/{l}/750e6/1/'.format(v=vel, t=tau,l=den)+base_name+'{v}-{t}-{l}-750e6-1-{n}'.format(v=vel, 
                         t=tau,l=den,n=n)
                 with open(filename,'r') as jsonfile:
                     result = load(jsonfile)
 
                 # Open the instance file
-                filename = root+'full-scenario/{v}-{l}-{n}'.format(v=vel,l=den,n=n)
+                filename = root+'full-scenario/{v}/{l}/{n}'.format(v=vel,l=den,n=n)
                 with open(filename,'r') as jsonfile:
                     instance = load(jsonfile)
                     decompressor(instance)
 
                 # Iterate over optimization associations
                 ho_opportunity = 0
-                for bs, init, end, _ in result['association'].values():
+                for bs, init, end, _ in result['association']:
                     try:
-                        data[(vel,den,n,ho_opportunit-1,bs)]['chosen']=1
+                        data[(vel,den,n,ho_opportunity-1,bs)]['chosen']=1
                     except KeyError:
                         pass
 
@@ -142,13 +146,22 @@ if __name__ == '__main__':
                                 tf = t
                                 rsrp, block, rate = list_stats(ti, tf, target, instance)
                                 tmp['mu_rsrp'] = np.mean(rsrp)
-                                tmp['dev_rsrp'] = np.dev(rsrp)
-                                tmp['mu_block'] = np.mean(block)
-                                tmp['dev_block'] = np.dev(block)
-                                tmp['sum_block'] = sum(block)
-                                tmp['n_blocks'] = len(block)
-                                tmp['percent_block'] = sum(block)/interval
-                                tmp['max_block'] = max(block)
+                                tmp['dev_rsrp'] = np.std(rsrp)
+                                if block:
+                                    tmp['mu_block'] = np.mean(block)
+                                    tmp['dev_block'] = np.std(block)
+                                    tmp['sum_block'] = sum(block)
+                                    tmp['n_blocks'] = len(block)
+                                    tmp['percent_block'] = sum(block)/interval
+                                    tmp['max_block'] = max(block)
+                                else:
+                                    tmp['mu_block'] = 0
+                                    tmp['dev_block'] = 0
+                                    tmp['sum_block'] = 0
+                                    tmp['n_blocks'] = 0
+                                    tmp['percent_block'] = 0
+                                    tmp['max_block'] = 0
+
                                 tmp['rate1'] = rate[0] 
                                 tmp['rate2'] = rate[1]
                                 tmp['rate3'] = rate[2]
@@ -162,7 +175,3 @@ if __name__ == '__main__':
 
     with open('mined_data.json','w') as jsonfile:
         jsonfile = dump(data)
-
-
-
-
