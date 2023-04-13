@@ -63,6 +63,7 @@ def main():
 
     for vel, ttt, tsim in vel_params:
         for blockdensity in Lambda:
+            print(vel, blockdensity)
             data, _ = load_result(
                     'instances/no-interference/opt/{t}/{v}/{l}/750e6/1/'.format(t=ttt,v=vel,l=blockdensity)).load()
 
@@ -74,14 +75,14 @@ def main():
 
             ninstances = len(data.items())
             #for m, result in data.items():
-            nthreads = 5
+            nthreads = 6
             rounds = ninstances//nthreads
 
-            for i in range(rounds):
-                print(i)
-                with Pool(processes=nthreads) as pool:
-                    ho_opportunities[vel][blockdensity] += pool.starmap(threadHoCounter,
-                    [(instances[str(i*nthreads+j)],tsim,ttt,offset,hysteresis) for j in range(nthreads)])
+            #for i in range(rounds):
+            #    print(i)
+            with Pool(processes=nthreads) as pool:
+                ho_opportunities[vel][blockdensity] += pool.starmap(threadHoCounter,
+                [(instances[str(i)],tsim,ttt,offset,hysteresis) for i in range(ninstances)])
                 
             plt.bar(counter, np.mean(ho_opportunities[vel][blockdensity]))
             counter += 1
