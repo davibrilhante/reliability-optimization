@@ -17,6 +17,7 @@ from optimization import snr_processing
 
 def threadHoCounter(instance,tsim,ttt,offset,hysteresis):
     opportunities = 0
+    ntargets = []
     ho_flag = False
     SNR, RSRP = snr_processing(instance['scenario'], 
                                 instance['baseStation'],
@@ -26,6 +27,7 @@ def threadHoCounter(instance,tsim,ttt,offset,hysteresis):
 
     for source,_ in enumerate(instance['baseStation']):
         for t in range(ttt,tsim):
+            targets = 0
             for target,_ in enumerate(instance['baseStation']):
                 if source==target:
                     continue
@@ -40,10 +42,28 @@ def threadHoCounter(instance,tsim,ttt,offset,hysteresis):
 
                 if temp >= ttt:
                     opportunities += 1
-                    break
+                    targets += 1
+
+            if targets>0:
+                ntargets.append(targets)
+
     #result.append(opportunities)
 
     return opportunities
+
+
+def threadRsrp(instance):
+    samples = []
+    SNR, RSRP = snr_processing(instance['scenario'], 
+                                instance['baseStation'],
+                                instance['userEquipment'], 
+                                instance['channel'], 
+                                instance['blockage'])
+    for bs in RSRP:
+        for sample in bs[0]:
+            samples.append(sample)
+
+    return samples
 
 
 def main():
@@ -52,9 +72,9 @@ def main():
     offset = 3
     hysteresis = 0
 
-    vel_params = [(22,160,203647),
-            (43,80,101823),
-            (64,40,67882)]
+    vel_params = [(22,160,203647)]#,
+            #(43,80,101823),
+            #(64,40,67882)]
 
     Lambda = [round(i*0.002 + 0.001,3) for i in range(5)]
     delay = [i*2 + 1 for i in range(5)]
@@ -74,22 +94,25 @@ def main():
             ho_opportunities[vel][blockdensity] = []
 
             ninstances = len(data.items())
-            #for m, result in data.items():
             nthreads = 6
-            rounds = ninstances//nthreads
 
-            #for i in range(rounds):
-            #    print(i)
-            with Pool(processes=nthreads) as pool:
-                ho_opportunities[vel][blockdensity] += pool.starmap(threadHoCounter,
-                [(instances[str(i)],tsim,ttt,offset,hysteresis) for i in range(ninstances)])
+            #with Pool(processes=nthreads) as pool:
+            #    ho_opportunities[vel][blockdensity] += pool.starmap(threadHoCounter,
+            #    [(instances[str(i)],tsim,ttt,offset,hysteresis) for i in range(ninstances)])
                 
-            plt.bar(counter, np.mean(ho_opportunities[vel][blockdensity]))
-            counter += 1
 
-    with open('ho-opp','w') as outfile:
+            with Pool(processes=nthreads) as pool:
+                ho_opportunities[vel][blockdensity] += pool.map(threadRsrp,
+                        [instances[str(i)] for i in range(ninstances)])
+
+            #print(ho_opportunities[vel][blockdensity])
+            #plt.bar(counter, np.mean(ho_opportunities[vel][blockdensity]))
+            #counter += 1
+
+    with open('ho-rsrp','w') as outfile:
         json.dump(ho_opportunities,outfile)
 
+    plt.boxplot(ho_opportunities[22].values())
     plt.grid()
     plt.show()
 
