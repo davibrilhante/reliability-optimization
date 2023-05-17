@@ -325,7 +325,8 @@ class SynchronizationAssessment(SignalAssessmentPolicy):
     def signalAssessment(self, device):
         if device.servingBS != None:
             #if device.listedRSRP[device.servingBS] < device.networkParameters.qualityOut and self.qualityOutCounter == 0:
-            if device.listedRSRP[device.servingBS] < device.networkParameters.qualityOut and not device.T310running:
+            #if device.listedRSRP[device.servingBS] < device.networkParameters.qualityOut and not device.T310running:
+            if device.servingBSSINR() < device.networkParameters.qualityOut and not device.T310running:
                 downcounter = device.networkParameters.T310
                 while downcounter > 0:
                     print(device.env.now, device.listedRSRP[device.servingBS], downcounter)
@@ -341,7 +342,8 @@ class SynchronizationAssessment(SignalAssessmentPolicy):
                             device.T310running = True
                             yield device.env.timeout(1)
      
-                        elif device.listedRSRP[device.servingBS] < device.networkParameters.qualityOut:
+                        #elif device.listedRSRP[device.servingBS] < device.networkParameters.qualityOut:
+                        elif device.servingBSSINR() < device.networkParameters.qualityOut:
                             # Saves the number of time slots with low received RSRP                        
                             self.qualityOutCounter += 1
                             #print(device.env.now, 'out counter', self.qualityOutCounter, downcounter)
@@ -350,7 +352,8 @@ class SynchronizationAssessment(SignalAssessmentPolicy):
      
                         # The channel is better now and the signal to serving BS
                         # got greater or equal the "quality in" param
-                        elif device.listedRSRP[device.servingBS] >= device.networkParameters.qualityIn:
+                        #elif device.listedRSRP[device.servingBS] >= device.networkParameters.qualityIn:
+                        elif device.servingBSSINR() >= device.networkParameters.qualityIn:
                             self.qualityInCounter += 1
                             #print(device.env.now, 'in counter', self.qualityInCounter, downcounter)
 
@@ -709,7 +712,8 @@ class MeasurementDevice(WirelessDevice):
                 # SNR in dB
                 SNR = 10*log10((10**(self.listedRSRP[self.servingBS]/10))/noisePower)
 
-                #print(SNR)
+                if SNR < self.networkParameters.qualityOut:
+                    print(SNR)
                 return SNR
 
 
@@ -1005,10 +1009,12 @@ class NetworkParameters:
         self.uplinkOverhead = 240 + 800 + 28800 +1000
 
         self.qualityOut = -7.2 # dB SINR #-100 # dBm RSRP
+        #self.qualityOut = -12 # dB SINR #-100 # dBm RSRP
         self.qualityIn = -4.8  # dB SINR #-90 # dBm RSRP
+        #self.qualityIn = -10  # dB SINR #-90 # dBm RSRP
         self.N310 = 1
         self.qOutMonitorTimer = 200
-        self.T310 = 1000
+        self.T310 = 600 #1000 #600
         self.N311 = 1
         self.qInMonitorTimer = 100
         self.T304 = 100

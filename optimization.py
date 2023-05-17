@@ -493,9 +493,9 @@ def add_variables(model, scenario, network, nodes, SNR, beta):
 
     #sumbeta = model.addVars(m_bs, n_ue, scenario['simTime'], vtype=GRB.BINARY, name='sumbeta')
 
-    comp_resources['addvars'][-1] = time.time() - start
+    comp_resources['addvars'][0] = time.time() - start
     heap_stat = heap.heap()
-    comp_resources['addvars'][0] = heap_stat.size/(1024*1024)
+    comp_resources['addvars'][1] = heap_stat.size/(1024*1024)
 
     logger.info('Function processing time : %d'%comp_resources['addvars'][0])
     logger.info('Memory stat: %d'%comp_resources['addvars'][1])
