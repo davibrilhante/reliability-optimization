@@ -34,6 +34,8 @@ def get_args():
     parser.add_argument('-T','--simutime', type=int, default=5000)
     parser.add_argument('--uedelay', type=int)
     parser.add_argument('--uecapacity', type=float)
+    parser.add_argument('--offset', default=3, type=float)
+    parser.add_argument('--hysteresis', default=0, type=float)
 
 
     args = parser.parse_args()
@@ -820,7 +822,8 @@ if __name__ == '__main__':
     SNR, RSRP = snr_processing(scenario, network, nodes, channel, LOS)
 
 
-    beta = beta_processing(SNR, m_bs, n_ue, simTime=scenario['simTime'], tau=scenario['ttt'])
+    beta = beta_processing(SNR, m_bs, n_ue, simTime=scenario['simTime'], 
+            tau=scenario['ttt'], offset=args.offset, hysteresis=args.hysteresis)
     model = model_setting()
     x, y, u = add_variables(model, scenario, network, nodes, SNR, beta)
 
