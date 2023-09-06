@@ -121,13 +121,22 @@ metrics_dict = {
 
 
 if __name__ == "__main__":
-    vel_params = [(22,160,203647),
+    vel_params = [(22,320,203647),
+            (22,160,203647),
+            (22,80,203647),
+            (22,40,203647),
+            (43,320,101823),
+            (43,160,101823),
             (43,80,101823),
+            (43,40,101823),
+            (64,320,67882),
+            (64,160,67882),
+            (64,80,67882),
             (64,40,67882)]
 
     Lambda = [round(i*0.004 + 0.001,3) for i in range(3)]
-    offset = range(1,5)
-    hysteresis = [0, 0.25]
+    offset = [3] #range(1,6)
+    hysteresis = [0] #[0, 0.25]
     seeds = range(60)
 
     total = len(vel_params)*len(Lambda)*len(offset)*len(hysteresis)*60
@@ -178,7 +187,7 @@ if __name__ == "__main__":
                                     plot_dict[vel][ttt][l][margin][metric] = []
                                     plot_dict[vel][ttt][l][margin][metric].append(extract_metric(out_dict[vel][ttt][l][margin]).errorplot(metric))
 
-        with open('hoparams-out-1.json','w') as outfile:
+        with open('hoparams-out-2.json','w') as outfile:
             dump(plot_dict, outfile)
 
     else:
